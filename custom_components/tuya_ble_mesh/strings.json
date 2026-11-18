@@ -1,0 +1,35 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Tuya BLE Mesh",
+        "description": "This build scans Tuya Bluetooth devices and reads the authenticated Tuya mobile-cloud device list so the exact device family and keys can be identified. Results are available to administrators at /api/tuya_ble_mesh/probe.",
+        "data": {
+          "target_mac": "Target MAC (optional)",
+          "scan_seconds": "Scan duration (seconds)"
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "Tuya BLE Mesh is already configured."
+    }
+  },
+  "services": {
+    "scan": {
+      "name": "Scan for Tuya BLE devices",
+      "description": "Collect Bluetooth advertisements for the configured duration."
+    },
+    "gatt": {
+      "name": "Dump GATT services",
+      "description": "Connect once to a device and enumerate its GATT services and readable characteristics."
+    },
+    "cloud_dump": {
+      "name": "Dump Tuya cloud devices",
+      "description": "Read the raw home and device payloads through the existing Tuya mobile session."
+    },
+    "probe": {
+      "name": "Run full probe",
+      "description": "Scan Bluetooth, dump the Tuya cloud device list, and optionally inspect a GATT target."
+    }
+  }
+}

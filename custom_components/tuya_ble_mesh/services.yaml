@@ -1,0 +1,30 @@
+scan:
+  name: Scan for Tuya BLE devices
+  description: Collect Bluetooth advertisements for the configured duration.
+  fields:
+    scan_seconds:
+      name: Scan duration
+      description: How long to scan, in seconds.
+      required: false
+      default: 60
+      selector:
+        number:
+          min: 5
+          max: 300
+          unit_of_measurement: s
+gatt:
+  name: Dump GATT services
+  description: Connect once to a device and enumerate its GATT services and readable characteristics.
+  fields:
+    address:
+      name: Bluetooth address
+      description: MAC address of the device to inspect.
+      required: true
+      selector:
+        text:
+cloud_dump:
+  name: Dump Tuya cloud devices
+  description: Read the raw home and device payloads through the existing Tuya mobile session.
+probe:
+  name: Run full probe
+  description: Scan Bluetooth, dump the Tuya cloud device list, and optionally inspect a GATT target.
