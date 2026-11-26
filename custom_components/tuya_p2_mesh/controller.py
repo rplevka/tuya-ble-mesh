@@ -34,6 +34,9 @@ _SEQUENCE_MAX = 0xFFFF
 _CAPTURE_SCAN_FAILED = (
     "Bluetooth scan failed; check the adapter and permissions"
 )
+_CAPTURE_BAD_LOCAL_KEY = (
+    "Local key is invalid; re-enter the key from the Tuya app."
+)
 _CAPTURE_NO_PAIR = (
     "No matching DP1 OFF/ON command pair was captured. Toggle the bulb "
     "from the Tuya app near the adapter and try again."
@@ -207,6 +210,11 @@ class P2Controller:
         seconds: float = 60.0,
     ) -> bytes:
         """Recover the beacon key from matching app OFF and ON commands."""
+        try:
+            local_key = p2.key_bytes(local_key)
+        except ValueError as err:
+            raise CaptureError(_CAPTURE_BAD_LOCAL_KEY) from err
+
         try:
             advertisements = await self.scan(seconds)
         except CaptureError:

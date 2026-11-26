@@ -18,6 +18,7 @@ class FakeRadio:
         self.ads = []
         self.fail = False
         self.scan_fail = False
+        self.scan_calls = 0
         self.active = 0
         self.max_active = 0
 
@@ -33,6 +34,7 @@ class FakeRadio:
             self.active -= 1
 
     async def scan(self, seconds):
+        self.scan_calls += 1
         if self.scan_fail:
             raise OSError("radio scan failed")
         return self.ads
@@ -205,6 +207,19 @@ def test_capture_ignores_bulb_reports_and_non_commands(tmp_path):
     ctrl = make_controller(tmp_path, radio)
     with pytest.raises(controller.CaptureError):
         asyncio.run(ctrl.capture_beacon_key(0x0010, LOCAL, seconds=1))
+
+
+def test_capture_rejects_invalid_local_key_before_scanning(tmp_path, caplog):
+    radio = FakeRadio()
+    ctrl = make_controller(tmp_path, radio)
+    invalid_key = b"0123456789abcde"  # synthetic 15-byte key
+    with pytest.raises(controller.CaptureError) as excinfo:
+        asyncio.run(ctrl.capture_beacon_key(0x0010, invalid_key, seconds=1))
+    message = str(excinfo.value)
+    assert message == "Local key is invalid; re-enter the key from the Tuya app."
+    assert invalid_key.decode() not in message
+    assert invalid_key.decode() not in caplog.text
+    assert radio.scan_calls == 0
 
 
 def test_capture_radio_failure_raises_capture_error(tmp_path):
