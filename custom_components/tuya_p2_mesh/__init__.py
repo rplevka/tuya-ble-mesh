@@ -22,7 +22,7 @@ from .const import (
     DOMAIN,
     SEQUENCE_STORAGE_FILE,
 )
-from .controller import P2Controller, SequenceStore
+from .controller import P2Controller, SequenceError, SequenceStore
 from .radio import AsyncP2Radio, P2Radio, RadioError
 
 PLATFORMS = [Platform.LIGHT]
@@ -78,10 +78,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             source_id=source_id,
             advertising_seconds=advertising_seconds,
         )
+    except SequenceError as err:
+        await hass.async_add_executor_job(radio.close)
+        raise ConfigEntryNotReady(str(err)) from err
     except (KeyError, OSError, TypeError, ValueError) as err:
         await hass.async_add_executor_job(radio.close)
         raise ConfigEntryNotReady(
-            "The P2 sequence counter could not be loaded"
+            "The P2 sequence counter could not be loaded; stop Home "
+            "Assistant, back up and remove the sequence file, then restart "
+            "and recreate the entry with the desired seed."
         ) from err
 
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = controller

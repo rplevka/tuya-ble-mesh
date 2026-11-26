@@ -258,12 +258,17 @@ advertising stop OK
 1. **Settings → Devices & services → Add integration → Tuya P2 Mesh**.
 2. Select the dongle adapter (`hciN`), source ID (default `0x7D00`), sequence
    seed, and advertising duration (default `0.5` s).
-   - Choose a sequence seed **above the last value used by the MQTT bridge**.
-     The counter must keep increasing. The seed is set at entry creation;
-     changing it later requires recreating the entry, not editing storage
-     while Home Assistant is running.
+   - Choose a sequence seed **above the last value used by the MQTT bridge with
+     the same source ID**. The counter must keep increasing; never lower it.
+     The seed only initialises the counter when
+     `.storage/tuya_p2_mesh_sequence.json` is absent. Restarting, reloading,
+     reconfiguring, or recreating the entry does not reset an existing counter.
+     To change it, follow
+     [Reseeding or recovering the sequence counter](#reseeding-or-recovering-the-sequence-counter).
    - Keep the default source ID unless you have a documented reason to change
      it.
+   - The advertising duration is the initial value; it can be changed later
+     with **Reconfigure** without recreating the entry.
 3. The scan waits ten seconds. P2 bulbs do not advertise while idle, so
    discovery often returns nothing; leave the selection empty and enter the
    bulb's Bluetooth address manually.
@@ -279,6 +284,34 @@ advertising stop OK
    entities (Settings → Devices & services → Helpers → Group → Light). Native
    P2 group addresses are not implemented; the helper sends one advertisement
    per member.
+
+### Reseeding or recovering the sequence counter
+
+The counter is shared by every integration operation and is stored in
+`.storage/tuya_p2_mesh_sequence.json`. A normal restart, reload, reconfigure, or
+entry recreation leaves it untouched. The configured seed is applied again only
+when that file is absent.
+
+To reseed deliberately (for example when moving from the bridge), or to recover
+from a corrupt file:
+
+1. Back up the Home Assistant configuration (including `.storage/`) and record
+   the last sequence value the bridge used for this source ID.
+2. In Home Assistant, remove the Tuya P2 Mesh config entry. Skip this step only
+   when recovering a corrupt file and reusing the entry's stored seed.
+3. Stop Home Assistant.
+4. Back up, then remove or rename `.storage/tuya_p2_mesh_sequence.json`.
+5. Start Home Assistant. If you kept the entry, setup recreates the file from
+   the entry's stored seed; otherwise add the entry again with the desired
+   sequence seed.
+6. Confirm the counter is above the bridge's last value for the same source ID
+   (default `0x7D00`). Never lower it below that value, and never run the bridge
+   and the native integration concurrently.
+
+A corrupt file fails setup with a `SequenceError`, which Home Assistant surfaces
+as `ConfigEntryNotReady`. The error message repeats the
+stop/back-up/remove/start procedure. Do not edit or delete the counter file
+while Home Assistant is running.
 
 Keys are stored in the Home Assistant config entry. Do not put them in YAML,
 compose environment variables, or this document. The old bridge configuration
@@ -313,12 +346,14 @@ the fallback throughout.
    (including `.storage/`), and record the bridge's last sequence value.
 2. Keep the bridge installed and its config intact. Do not uninstall the
    bridge service during the trial.
-3. After the native integration passes the acceptance test, disable the
-   bridge-backed MQTT entities or stop the bridge service so two controllers
-   are not sending commands to the same bulbs. If both must run temporarily,
-   expect duplicate or racing commands and do not rely on state.
-4. Keep the native integration and the bridge available in parallel for a
-   rollback window. Remove the bridge only after the user is satisfied.
+3. After the native integration passes the acceptance test, stop the bridge
+   service (or disable its MQTT entities) before the native entry starts
+   controlling the bulbs. Never run the bridge and this integration
+   concurrently against the same bulbs or source ID; duplicate sequence
+   numbers and racing commands can be ignored or cause flicker.
+4. Keep the bridge installed and its configuration intact for a rollback
+   window, but leave it stopped while the native path is active. Remove the
+   bridge only after the user is satisfied.
 
 Rollback:
 
@@ -329,9 +364,13 @@ systemctl is-active tuya-p2-bridge.service
 ```
 
 Then disable the Tuya P2 Mesh config entry in Home Assistant (or remove the
-integration) and re-enable the MQTT entities. Do not delete the bridge config,
-the integration's `.storage/tuya_p2_mesh_sequence.json`, or the Home Assistant
-backup until the rollback window closes.
+integration) so the native radio stops advertising before the bridge starts,
+and re-enable the MQTT entities. Do not run both controllers concurrently. Do
+not delete the bridge config, the integration's
+`.storage/tuya_p2_mesh_sequence.json`, or the Home Assistant backup until the
+rollback window closes. If the native path is used again later, its counter must
+still be above the last value the bridge has sent for the same source ID; reseed
+it with the procedure in section 6 if necessary.
 
 ## 9. Blocking the Tuya cloud
 

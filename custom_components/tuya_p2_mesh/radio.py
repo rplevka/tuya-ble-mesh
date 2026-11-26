@@ -92,6 +92,19 @@ _EXTENDED_SCAN_PARAMETERS = bytes.fromhex("0000010110001000")
 _EXTENDED_SCAN_ENABLE = bytes.fromhex("010000000000")
 _LEGACY_SCAN_PARAMETERS = bytes.fromhex("01100010000000")
 
+_ADAPTER_LOCKS: dict[int, threading.RLock] = {}
+_ADAPTER_LOCKS_GUARD = threading.Lock()
+
+
+def _adapter_lock(index: int) -> threading.RLock:
+    """Return the process-wide radio lock for one adapter index."""
+    with _ADAPTER_LOCKS_GUARD:
+        lock = _ADAPTER_LOCKS.get(index)
+        if lock is None:
+            lock = threading.RLock()
+            _ADAPTER_LOCKS[index] = lock
+        return lock
+
 
 class RadioError(Exception):
     """Raised when the HCI adapter cannot be opened or a command fails."""
@@ -215,7 +228,7 @@ class P2Radio:
         self.index = int(adapter[3:])
         self.extended: bool | None = None
         self._command_fn = command_fn
-        self._lock = threading.RLock()
+        self._lock = _adapter_lock(self.index)
         self._closed = False
 
     # -- low-level HCI -----------------------------------------------------

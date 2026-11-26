@@ -80,37 +80,99 @@ class CaptureError(Exception):
     """Raised when a beacon key cannot be captured safely."""
 
 
+class SequenceError(Exception):
+    """Raised when the persisted P2 sequence counter is corrupt or unusable."""
+
+
+_SEQUENCE_LOCKS: dict[str, threading.Lock] = {}
+_SEQUENCE_LOCKS_GUARD = threading.Lock()
+
+
+def _sequence_lock(path: Path) -> threading.Lock:
+    """Return the process-wide lock for one sequence-counter path."""
+    try:
+        key = str(path.resolve())
+    except OSError:
+        key = os.path.abspath(os.fspath(path))
+    with _SEQUENCE_LOCKS_GUARD:
+        lock = _SEQUENCE_LOCKS.get(key)
+        if lock is None:
+            lock = threading.Lock()
+            _SEQUENCE_LOCKS[key] = lock
+        return lock
+
+
 class SequenceStore:
     """Persistent 16-bit P2 sequence counter stored as JSON.
 
     The file contains ``{"seq": <integer>}`` and is replaced atomically, so
     an interrupted write cannot corrupt the counter. The value is persisted
-    before the controller transmits it.
+    before the controller transmits it. Allocation is serialised process-wide
+    per resolved path, and every allocation re-reads the file so separate
+    stores (and separate config entries) can never reuse or regress a value.
     """
 
     def __init__(self, path: Path, initial: int) -> None:
         self.path = Path(path)
-        self._lock = threading.Lock()
-        self.value = self._load(initial)
-
-    def _load(self, initial: int) -> int:
-        try:
-            raw = self.path.read_text(encoding="utf-8")
-        except FileNotFoundError:
-            return int(initial) & _SEQUENCE_MAX
-        data = json.loads(raw)
-        value = data["seq"] if isinstance(data, dict) else data
-        return int(value) & _SEQUENCE_MAX
+        self._initial = int(initial) & _SEQUENCE_MAX
+        self._lock = _sequence_lock(self.path)
+        with self._lock:
+            value = self._read()
+        self.value = self._initial if value is None else value
 
     def next(self) -> int:
         """Increment, save, and return the next non-zero sequence number."""
         with self._lock:
-            value = (self.value + 1) & _SEQUENCE_MAX
+            current = self._read()
+            if current is None:
+                current = self._initial
+            value = (current + 1) & _SEQUENCE_MAX
             if value == 0:
                 value = 1
             self._save(value)
             self.value = value
             return value
+
+    def _error(self, detail: str) -> SequenceError:
+        return SequenceError(
+            f"The P2 sequence counter file {self.path} {detail}. "
+            "Stop Home Assistant, back up and remove that file, then start "
+            "Home Assistant and recreate the Tuya P2 Mesh entry with the "
+            "desired sequence seed. Never set the counter below the last "
+            "sequence value used by the bridge for the same source ID."
+        )
+
+    def _read(self) -> int | None:
+        """Read and validate the counter, or return ``None`` when absent."""
+        try:
+            raw = self.path.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            return None
+        except OSError as err:
+            raise self._error(f"could not be read ({err})") from err
+        try:
+            data = json.loads(raw)
+        except (TypeError, ValueError) as err:
+            raise self._error("is not valid JSON") from err
+        if isinstance(data, dict):
+            if "seq" not in data:
+                raise self._error('is missing the "seq" integer')
+            value = data["seq"]
+            if isinstance(value, bool) or not isinstance(value, int):
+                raise self._error(
+                    'has an invalid "seq" value; "seq" must be an integer'
+                )
+        else:
+            if isinstance(data, bool) or not isinstance(data, int):
+                raise self._error(
+                    "is malformed; expected a JSON object or a bare integer"
+                )
+            value = data
+        if not 0 <= value <= _SEQUENCE_MAX:
+            raise self._error(
+                f"has a sequence value that must be between 0 and {_SEQUENCE_MAX}"
+            )
+        return value
 
     def _save(self, value: int) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -120,6 +182,7 @@ class SequenceStore:
             suffix=".tmp",
         )
         try:
+            os.fchmod(fd, 0o600)
             with os.fdopen(fd, "w", encoding="utf-8") as handle:
                 json.dump({"seq": value}, handle)
                 handle.flush()

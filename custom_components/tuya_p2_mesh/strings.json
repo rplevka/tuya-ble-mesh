@@ -56,10 +56,11 @@
       },
       "reconfigure": {
         "title": "Reconfigure Tuya P2 Mesh",
-        "description": "Update the adapter, source ID, beacon key, or a bulb's local key.",
+        "description": "Update the adapter, source ID, advertising duration, beacon key, or a bulb's local key.",
         "data": {
           "adapter": "Bluetooth adapter",
           "source_id": "Source ID (hex)",
+          "advertising_seconds": "Advertising duration (seconds)",
           "beacon_key": "Beacon key",
           "bulb": "Bulb",
           "local_key": "Local key"
@@ -77,6 +78,7 @@
       "duplicate_mac": "A bulb with this MAC address is already configured.",
       "invalid_source_id": "Enter a source ID between 0 and 65535.",
       "invalid_sequence_seed": "Enter a sequence seed between 0 and 65535.",
+      "sequence_error": "The P2 sequence counter file is corrupt. Stop Home Assistant, back up and remove .storage/tuya_p2_mesh_sequence.json, then restart and recreate the entry with the desired sequence seed.",
       "test_failed": "The test command could not be sent. Check the adapter and try again.",
       "unknown": "Unexpected error."
     },
@@ -124,6 +126,7 @@
       "invalid_name": "Enter a name for the bulb.",
       "invalid_node_id": "Enter a node ID between 0 and 65535.",
       "duplicate_mac": "A bulb with this MAC address is already configured.",
+      "sequence_error": "The P2 sequence counter file is corrupt. Stop Home Assistant, back up and remove .storage/tuya_p2_mesh_sequence.json, then restart and recreate the entry with the desired sequence seed.",
       "test_failed": "The test command could not be sent. Check the adapter and try again.",
       "unknown": "Unexpected error."
     },

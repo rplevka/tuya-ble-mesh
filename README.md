@@ -89,8 +89,45 @@ integration.
    visibly responded before the entry is created.
 
 The options flow (**Configure**) adds more bulbs while reusing the adapter and
-beacon key. The reconfigure flow updates the adapter, source ID, beacon key, or
-a bulb's local key. Reauth is available when a key changes.
+beacon key. The reconfigure flow updates the adapter, source ID, advertising
+duration, beacon key, or a bulb's local key. Reauth is available when a key
+changes.
+
+### Sequence counter, reseeding, and bridge cutover
+
+The 16-bit sequence counter is persisted in
+`.storage/tuya_p2_mesh_sequence.json` and is shared by the config-flow test,
+entry setup, options, and every reload. The `sequence_seed` value from the
+configuration flow only initialises the counter when that file does not exist.
+Restarting Home Assistant, reloading the entry, or reconfiguring or recreating
+the entry does not reset or reseed an existing counter.
+
+The counter must keep increasing. If the MQTT bridge previously controlled the
+same bulbs with the same source ID (default `0x7D00`), the native counter must
+already be above the last value the bridge used, and the seed must never be set
+lower. Sending a stale or reused sequence number can make the bulbs ignore
+commands. Never run the bridge and this integration as simultaneous controllers
+of the same bulbs or source ID.
+
+To reseed the counter deliberately, or to recover a corrupt file:
+
+1. Back up the Home Assistant configuration, including `.storage/`, and record
+   the last sequence value the bridge used for this source ID.
+2. In Home Assistant, remove the Tuya P2 Mesh config entry. Skip this step only
+   when recovering from a corrupt file and reusing the entry's stored seed.
+3. Stop Home Assistant completely.
+4. Back up, then remove or rename `.storage/tuya_p2_mesh_sequence.json`.
+5. Start Home Assistant. If you kept the entry, setup recreates the file from
+   the entry's stored seed; otherwise add the entry again with the desired
+   sequence seed.
+6. Confirm the counter is above the bridge's last value for the same source ID.
+   Never lower it, and never run the bridge and the native integration at the
+   same time.
+
+A corrupt counter file raises a `SequenceError` during setup, and Home Assistant
+marks the entry `ConfigEntryNotReady`. The error message repeats the
+stop/back-up/remove/start procedure. Do not edit or delete the counter file
+while Home Assistant is running.
 
 ### New bulbs and the Tuya cloud
 
@@ -134,10 +171,12 @@ changes, and the dongle within BLE range of the bulbs. See
 compose changes for `hass-homeassistant-1`, verification steps, fallback to the
 MQTT bridge, and cloud-blocking notes.
 
-The existing bridge remains the fallback. Do not run the bridge and this
-integration as competing controllers of the same bulbs with the same source
-ID. Start the native sequence counter above the last value used by the bridge,
-and disable the bridge once the native path passes live tests.
+The existing bridge remains the fallback. Never run the bridge and this
+integration at the same time against the same bulbs or source ID. Before
+cutover, record the last sequence value used by the bridge and configure a
+native seed above it; the native counter must never be lower. Stop the bridge
+before the native entry starts controlling the bulbs. If the counter is ever
+lost or a stale value is suspected, follow the reseeding procedure above.
 
 ## Repository layout
 
@@ -165,6 +204,7 @@ without a reason.
 | Test command sends but nothing happens | Wrong address, node ID, local key, beacon key, or out of range | Recheck the details, capture the beacon key again, and move the adapter closer. |
 | Every command is slow | Advertising duration too high, or many data points | Lower the advertising duration to 0.5 s; group commands send one frame per bulb. |
 | Entity state is wrong | P2 is one-way and optimistic | Send a state-changing command; there is no reliable poll. |
+| Entry fails with a `SequenceError` / `ConfigEntryNotReady` for the sequence counter | The counter file is corrupt or was edited while Home Assistant was running | Stop Home Assistant, back up and remove `.storage/tuya_p2_mesh_sequence.json`, then start Home Assistant and recreate the entry with a seed above the bridge's last value. |
 | Adapter disappears after reboot | Dongle re-enumerated or host Bluetooth powered it down | Keep the adapter powered on the host and prefer a stable USB port; re-check `hciN`. |
 
 ## Development

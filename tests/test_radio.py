@@ -1,5 +1,7 @@
 import asyncio
 import struct
+import threading
+import time
 
 import pytest
 
@@ -225,6 +227,50 @@ def test_close_prevents_further_commands():
 def test_invalid_adapter_name():
     with pytest.raises(ValueError):
         radio.P2Radio("ttyUSB0")
+
+
+def test_radios_for_same_adapter_share_adapter_lock():
+    first = radio.P2Radio("hci0")
+    second = radio.P2Radio("hci0")
+    other = radio.P2Radio("hci1")
+
+    assert first._lock is second._lock
+    assert first._lock is not other._lock
+
+
+def test_radios_for_same_adapter_serialize_commands():
+    started = threading.Barrier(2)
+    guard = threading.Lock()
+    state = {"active": 0, "max_active": 0}
+
+    def command(ocf, payload=b"", allow_disabled=False):
+        with guard:
+            state["active"] += 1
+            state["max_active"] = max(
+                state["max_active"], state["active"]
+            )
+        time.sleep(0.02)
+        with guard:
+            state["active"] -= 1
+        return b""
+
+    first = radio.P2Radio("hci0", command_fn=command)
+    second = radio.P2Radio("hci0", command_fn=command)
+
+    def run(instance):
+        started.wait()
+        instance.command(0x03)
+
+    threads = [
+        threading.Thread(target=run, args=(instance,))
+        for instance in (first, second)
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert state["max_active"] == 1
 
 
 def test_async_radio_delegates_to_executor():

@@ -1,5 +1,8 @@
 import asyncio
 import json
+import stat
+import threading
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
@@ -77,6 +80,78 @@ def test_sequence_store_writes_integer_json(tmp_path):
     controller.SequenceStore(path, 0x4000).next()
     data = json.loads(path.read_text())
     assert data == {"seq": 0x4001}
+
+
+def test_sequence_store_file_is_private(tmp_path):
+    path = tmp_path / "seq.json"
+    controller.SequenceStore(path, 0x4000).next()
+    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+
+
+def test_sequence_stores_share_process_wide_allocation(tmp_path):
+    path = tmp_path / "seq.json"
+    first = controller.SequenceStore(path, 0x4000)
+    second = controller.SequenceStore(path, 0x4000)
+
+    values = [
+        (first if index % 2 == 0 else second).next()
+        for index in range(10)
+    ]
+
+    assert values == list(range(0x4001, 0x400B))
+    assert json.loads(path.read_text())["seq"] == 0x400A
+    restarted = controller.SequenceStore(path, 0x4000)
+    assert restarted.next() == 0x400B
+
+
+def test_sequence_allocation_is_thread_safe(tmp_path):
+    path = tmp_path / "seq.json"
+    stores = [controller.SequenceStore(path, 0x4000) for _ in range(2)]
+    barrier = threading.Barrier(8)
+
+    def allocate(index):
+        barrier.wait()
+        return stores[index % 2].next()
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        values = list(executor.map(allocate, range(24)))
+
+    assert sorted(values) == list(range(0x4001, 0x4019))
+    assert json.loads(path.read_text())["seq"] == 0x4018
+
+
+@pytest.mark.parametrize(
+    ("content", "detail"),
+    [
+        ("{not json", "not valid JSON"),
+        ("[]", "expected a JSON object or a bare integer"),
+        ('{"other": 1}', 'missing the "seq" integer'),
+        ('{"seq": "abc"}', '"seq" must be an integer'),
+        ('{"seq": true}', '"seq" must be an integer'),
+        ('{"seq": 70000}', "between 0 and 65535"),
+        ("-1", "between 0 and 65535"),
+    ],
+)
+def test_corrupt_sequence_file_raises_sequence_error(tmp_path, content, detail):
+    path = tmp_path / "seq.json"
+    path.write_text(content, encoding="utf-8")
+
+    with pytest.raises(controller.SequenceError) as excinfo:
+        controller.SequenceStore(path, 0x4000)
+
+    message = str(excinfo.value)
+    assert detail in message
+    assert str(path) in message
+    assert "Stop Home Assistant" in message
+
+
+def test_sequence_store_accepts_bare_integer_file(tmp_path):
+    path = tmp_path / "seq.json"
+    path.write_text("4660", encoding="utf-8")
+
+    store = controller.SequenceStore(path, 0x4000)
+    assert store.value == 0x1234
+    assert store.next() == 0x1235
 
 
 def test_send_builds_frame_with_sequence(tmp_path):

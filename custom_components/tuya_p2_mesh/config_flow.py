@@ -51,6 +51,7 @@ from .controller import (
     CaptureError,
     P2Advertisement,
     P2Controller,
+    SequenceError,
     SequenceStore,
 )
 from .p2 import key_bytes
@@ -176,9 +177,13 @@ async def _async_controller(
 ) -> P2Controller:
     """Build a short-lived controller for one flow operation."""
     radio = P2Radio(adapter)
-    sequence = await hass.async_add_executor_job(
-        SequenceStore, sequence_path(hass), sequence_seed
-    )
+    try:
+        sequence = await hass.async_add_executor_job(
+            SequenceStore, sequence_path(hass), sequence_seed
+        )
+    except BaseException:
+        await hass.async_add_executor_job(radio.close)
+        raise
     return P2Controller(
         AsyncP2Radio(hass, radio),
         beacon_key,
@@ -186,6 +191,17 @@ async def _async_controller(
         source_id=source_id,
         advertising_seconds=advertising_seconds,
     )
+
+
+def _loaded_controller(
+    hass: HomeAssistant, entry: ConfigEntry
+) -> P2Controller | None:
+    """Return the controller of an already loaded entry, if there is one."""
+    controllers = hass.data.get(DOMAIN)
+    if not isinstance(controllers, dict):
+        return None
+    controller = controllers.get(entry.entry_id)
+    return controller if isinstance(controller, P2Controller) else None
 
 
 async def _async_scan(
@@ -197,28 +213,44 @@ async def _async_scan(
     sequence_seed: int,
     beacon_key: bytes,
     errors: dict[str, str],
+    controller: P2Controller | None = None,
 ) -> list[P2Advertisement]:
     """Scan for advertisements and record a form error on failure."""
     advertisements: list[P2Advertisement] = []
-    controller = None
+    temporary = controller is None
     try:
-        controller = await _async_controller(
-            hass,
-            adapter=adapter,
-            source_id=source_id,
-            advertising_seconds=advertising_seconds,
-            sequence_seed=sequence_seed,
-            beacon_key=beacon_key,
-        )
+        if controller is None:
+            controller = await _async_controller(
+                hass,
+                adapter=adapter,
+                source_id=source_id,
+                advertising_seconds=advertising_seconds,
+                sequence_seed=sequence_seed,
+                beacon_key=beacon_key,
+            )
         advertisements = await controller.scan(SCAN_SECONDS)
+    except SequenceError:
+        errors.setdefault("base", "sequence_error")
     except (KeyError, OSError, RadioError, TypeError, ValueError):
         errors.setdefault("base", "cannot_connect")
     finally:
-        if controller is not None:
+        if temporary and controller is not None:
             await controller.async_close()
     if not advertisements and "base" not in errors:
         errors["base"] = "no_devices"
     return advertisements
+
+
+def _advertising_selector() -> NumberSelector:
+    return NumberSelector(
+        NumberSelectorConfig(
+            min=0.5,
+            max=60.0,
+            step=0.5,
+            mode=NumberSelectorMode.BOX,
+            unit_of_measurement="s",
+        )
+    )
 
 
 def _user_schema(adapters: list[str], adapter: str) -> vol.Schema:
@@ -243,15 +275,7 @@ def _user_schema(adapters: list[str], adapter: str) -> vol.Schema:
             vol.Required(
                 CONF_ADVERTISING_SECONDS,
                 default=DEFAULT_ADVERTISING_SECONDS,
-            ): NumberSelector(
-                NumberSelectorConfig(
-                    min=0.5,
-                    max=60.0,
-                    step=0.5,
-                    mode=NumberSelectorMode.BOX,
-                    unit_of_measurement="s",
-                )
-            ),
+            ): _advertising_selector(),
         }
     )
 
@@ -503,6 +527,8 @@ class TuyaP2MeshConfigFlow(ConfigFlow, domain=DOMAIN):
                     )
                 except CaptureError:
                     errors["base"] = "capture_failed"
+                except SequenceError:
+                    errors["base"] = "sequence_error"
                 except (KeyError, OSError, RadioError, TypeError, ValueError):
                     errors["base"] = "cannot_connect"
                 finally:
@@ -539,6 +565,9 @@ class TuyaP2MeshConfigFlow(ConfigFlow, domain=DOMAIN):
         if not self._test_sent:
             try:
                 await self._async_send_test()
+            except SequenceError:
+                errors["base"] = "sequence_error"
+                self._confirm_default = False
             except (KeyError, OSError, RadioError, TypeError, ValueError):
                 errors["base"] = "test_failed"
                 self._confirm_default = False
@@ -615,7 +644,7 @@ class TuyaP2MeshConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_reconfigure(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Update the adapter, source ID, keys, or one bulb's local key."""
+        """Update the adapter, source, advertising, keys, or a local key."""
         entry = self._get_reconfigure_entry()
         errors: dict[str, str] = {}
         if user_input is not None:
@@ -673,6 +702,18 @@ class TuyaP2MeshConfigFlow(ConfigFlow, domain=DOMAIN):
                 )
             except ValueError:
                 errors["base"] = "invalid_source_id"
+        if allow_source and CONF_ADVERTISING_SECONDS in user_input:
+            try:
+                advertising_seconds = float(
+                    user_input[CONF_ADVERTISING_SECONDS]
+                )
+            except (TypeError, ValueError):
+                errors["base"] = "unknown"
+            else:
+                if not 0.5 <= advertising_seconds <= 60.0:
+                    errors["base"] = "unknown"
+                else:
+                    data[CONF_ADVERTISING_SECONDS] = advertising_seconds
         beacon = str(user_input.get(CONF_BEACON_KEY) or "").strip()
         if beacon:
             try:
@@ -737,6 +778,15 @@ def _reconfigure_schema(entry: ConfigEntry) -> vol.Schema:
                 CONF_SOURCE_ID,
                 default=f"{int(entry.data[CONF_SOURCE_ID]):04X}",
             ): str,
+            vol.Required(
+                CONF_ADVERTISING_SECONDS,
+                default=float(
+                    entry.data.get(
+                        CONF_ADVERTISING_SECONDS,
+                        DEFAULT_ADVERTISING_SECONDS,
+                    )
+                ),
+            ): _advertising_selector(),
             vol.Optional(CONF_BEACON_KEY, default=""): str,
             vol.Required(
                 CONF_BULB, default=macs[0] if macs else ""
@@ -812,6 +862,7 @@ class TuyaP2MeshOptionsFlow(OptionsFlow):
             ),
             beacon_key=key_bytes(entry.data[CONF_BEACON_KEY]),
             errors=errors,
+            controller=_loaded_controller(self.hass, entry),
         )
         return self.async_show_form(
             step_id="add_device",
@@ -837,6 +888,8 @@ class TuyaP2MeshOptionsFlow(OptionsFlow):
                 else:
                     try:
                         await self._async_test_bulb(entry, bulb)
+                    except SequenceError:
+                        errors["base"] = "sequence_error"
                     except (KeyError, OSError, RadioError, TypeError, ValueError):
                         errors["base"] = "test_failed"
                     else:
@@ -865,24 +918,30 @@ class TuyaP2MeshOptionsFlow(OptionsFlow):
     async def _async_test_bulb(
         self, entry: ConfigEntry, bulb: Mapping[str, Any]
     ) -> None:
-        controller = await _async_controller(
-            self.hass,
-            adapter=entry.data[CONF_ADAPTER],
-            source_id=int(
-                entry.data.get(CONF_SOURCE_ID, DEFAULT_SOURCE_ID)
-            ),
-            advertising_seconds=float(
-                entry.data.get(
-                    CONF_ADVERTISING_SECONDS,
-                    DEFAULT_ADVERTISING_SECONDS,
-                )
-            ),
-            sequence_seed=int(
-                entry.data.get(CONF_SEQUENCE_SEED, DEFAULT_SEQUENCE_SEED)
-            ),
-            beacon_key=key_bytes(entry.data[CONF_BEACON_KEY]),
-        )
+        controller = _loaded_controller(self.hass, entry)
+        temporary = controller is None
+        if controller is None:
+            controller = await _async_controller(
+                self.hass,
+                adapter=entry.data[CONF_ADAPTER],
+                source_id=int(
+                    entry.data.get(CONF_SOURCE_ID, DEFAULT_SOURCE_ID)
+                ),
+                advertising_seconds=float(
+                    entry.data.get(
+                        CONF_ADVERTISING_SECONDS,
+                        DEFAULT_ADVERTISING_SECONDS,
+                    )
+                ),
+                sequence_seed=int(
+                    entry.data.get(
+                        CONF_SEQUENCE_SEED, DEFAULT_SEQUENCE_SEED
+                    )
+                ),
+                beacon_key=key_bytes(entry.data[CONF_BEACON_KEY]),
+            )
         try:
             await controller.test(_bulb_config(bulb))
         finally:
-            await controller.async_close()
+            if temporary:
+                await controller.async_close()

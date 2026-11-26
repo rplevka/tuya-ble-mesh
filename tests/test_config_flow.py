@@ -505,6 +505,57 @@ async def test_options_add_device_rejects_duplicate_mac(hass) -> None:
     assert entry.data[CONF_BULBS] == [_bulb()]
 
 
+async def test_options_add_device_uses_loaded_entry_controller(
+    hass,
+    monkeypatch: pytest.MonkeyPatch,
+    fake_hardware: type[FakeRadio],
+) -> None:
+    scan = AsyncMock(return_value=[])
+    monkeypatch.setattr(P2Controller, "scan", scan)
+    entry = _make_entry(hass)
+
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    controller = hass.data[DOMAIN][entry.entry_id]
+    assert len(fake_hardware.instances) == 1
+    entry_radio = fake_hardware.instances[0]
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "add_device"}
+    )
+    assert result["step_id"] == "add_device"
+
+    scan.assert_awaited_once()
+    assert len(fake_hardware.instances) == 1
+    assert not entry_radio.closed
+    assert hass.data[DOMAIN][entry.entry_id] is controller
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {CONF_MAC: MAC2}
+    )
+    assert result["step_id"] == "add_device_details"
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            CONF_MAC: MAC2,
+            CONF_NODE_ID: "0011",
+            CONF_LOCAL_KEY: LOCAL_KEY2,
+            CONF_NAME: "Kitchen",
+        },
+    )
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert entry.data[CONF_BULBS][-1][CONF_MAC] == MAC2
+    assert len(entry_radio.frames) == 2
+    sequence_path = Path(
+        hass.config.path(".storage/tuya_p2_mesh_sequence.json")
+    )
+    assert json.loads(sequence_path.read_text(encoding="utf-8"))["seq"] == (
+        SEQUENCE_SEED + 2
+    )
+
+
 async def test_reauth_updates_keys(hass) -> None:
     entry = _make_entry(hass)
 
@@ -553,6 +604,32 @@ async def test_reconfigure_updates_source_and_beacon(hass) -> None:
     await hass.async_block_till_done()
 
 
+async def test_reconfigure_updates_advertising_seconds(hass) -> None:
+    entry = _make_entry(hass)
+
+    result = await entry.start_reconfigure_flow(hass)
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "reconfigure"
+    assert _field(result["data_schema"], CONF_ADVERTISING_SECONDS) is not None
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            CONF_ADAPTER: ADAPTER,
+            CONF_SOURCE_ID: "7D00",
+            CONF_ADVERTISING_SECONDS: 2.5,
+            CONF_BEACON_KEY: "",
+            CONF_BULB: MAC,
+            CONF_LOCAL_KEY: "",
+        },
+    )
+
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "reconfigure_successful"
+    assert entry.data[CONF_ADVERTISING_SECONDS] == 2.5
+    await hass.async_block_till_done()
+
+
 async def test_user_step_rejects_adapter_when_hci_fails(
     hass, fake_hardware: type[FakeRadio]
 ) -> None:
@@ -594,6 +671,27 @@ async def test_setup_entry_not_ready_when_adapter_fails(
     with pytest.raises(ConfigEntryNotReady):
         await component.async_setup_entry(hass, entry)
 
+    assert fake_hardware.instances[-1].closed
+    assert entry.entry_id not in hass.data.get(DOMAIN, {})
+
+
+async def test_setup_entry_not_ready_when_sequence_is_corrupt(
+    hass, fake_hardware: type[FakeRadio]
+) -> None:
+    sequence_path = Path(
+        hass.config.path(".storage/tuya_p2_mesh_sequence.json")
+    )
+    sequence_path.parent.mkdir(parents=True, exist_ok=True)
+    sequence_path.write_text("{not valid json", encoding="utf-8")
+    entry = _make_entry(hass)
+
+    with pytest.raises(ConfigEntryNotReady) as excinfo:
+        await component.async_setup_entry(hass, entry)
+
+    message = str(excinfo.value)
+    assert "sequence counter" in message.lower()
+    assert "Stop Home Assistant" in message
+    assert "tuya_p2_mesh_sequence.json" in message
     assert fake_hardware.instances[-1].closed
     assert entry.entry_id not in hass.data.get(DOMAIN, {})
 
