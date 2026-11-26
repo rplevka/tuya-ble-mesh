@@ -18,6 +18,13 @@ CONF_NODE_ID = "node_id"
 CONF_LOCAL_KEY = "local_key"
 CONF_NAME = "name"
 CONF_ADVERTISING_SECONDS = "advertising_seconds"
+CONF_CONFIRMED = "confirmed"
+CONF_DEVICE = "device"
+CONF_BULB = "bulb"
+
+# The config-flow test command and the entry setup share this counter, so a
+# sequence number sent during the wizard is never sent again by the entity.
+SEQUENCE_STORAGE_FILE = ".storage/tuya_p2_mesh_sequence.json"
 
 # Tuya P2 data points.
 DP_SWITCH = 1

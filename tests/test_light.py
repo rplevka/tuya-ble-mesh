@@ -121,8 +121,12 @@ class StubLightEntity:
         raise AssertionError("test must patch async_write_ha_state")
 
 
-def _install_ha_stubs() -> None:
-    """Install the minimal Home Assistant modules needed by light.py."""
+def _install_ha_stubs() -> dict[str, types.ModuleType | None]:
+    """Install the minimal Home Assistant modules needed by light.py.
+
+    Return the modules that were present before, so the caller can remove
+    the stubs again and leave ``sys.modules`` clean for the HA test harness.
+    """
     homeassistant = types.ModuleType("homeassistant")
     homeassistant.__path__ = []  # type: ignore[attr-defined]
     components = types.ModuleType("homeassistant.components")
@@ -146,28 +150,35 @@ def _install_ha_stubs() -> None:
     entity_platform = types.ModuleType("homeassistant.helpers.entity_platform")
     entity_platform.AddEntitiesCallback = object
 
-    sys.modules.update(
-        {
-            "homeassistant": homeassistant,
-            "homeassistant.components": components,
-            "homeassistant.components.light": light_component,
-            "homeassistant.config_entries": config_entries,
-            "homeassistant.core": core,
-            "homeassistant.exceptions": exceptions,
-            "homeassistant.helpers": helpers,
-            "homeassistant.helpers.device_registry": device_registry,
-            "homeassistant.helpers.entity_platform": entity_platform,
-        }
-    )
+    modules = {
+        "homeassistant": homeassistant,
+        "homeassistant.components": components,
+        "homeassistant.components.light": light_component,
+        "homeassistant.config_entries": config_entries,
+        "homeassistant.core": core,
+        "homeassistant.exceptions": exceptions,
+        "homeassistant.helpers": helpers,
+        "homeassistant.helpers.device_registry": device_registry,
+        "homeassistant.helpers.entity_platform": entity_platform,
+    }
+    previous = {name: sys.modules.get(name) for name in modules}
+    sys.modules.update(modules)
+    return previous
 
 
-def _load_light() -> types.ModuleType:
+def _restore_ha_modules(
+    previous: dict[str, types.ModuleType | None],
+) -> None:
+    """Restore ``sys.modules`` after loading light.py with stubs."""
+    for name, module in previous.items():
+        if module is None:
+            sys.modules.pop(name, None)
+        else:
+            sys.modules[name] = module
+
+
+def _load_light_module() -> types.ModuleType:
     """Load light.py as a package so its relative imports resolve."""
-    try:
-        import homeassistant.components.light  # noqa: F401
-    except ImportError:
-        _install_ha_stubs()
-
     if PACKAGE not in sys.modules:
         package = types.ModuleType(PACKAGE)
         package.__path__ = [str(COMPONENT_DIR)]  # type: ignore[attr-defined]
@@ -182,6 +193,19 @@ def _load_light() -> types.ModuleType:
         sys.modules[spec.name] = module
         spec.loader.exec_module(module)
     return sys.modules[f"{PACKAGE}.light"]
+
+
+def _load_light() -> types.ModuleType:
+    """Load light.py with real Home Assistant, or with temporary stubs."""
+    try:
+        import homeassistant.components.light  # noqa: F401
+    except ImportError:
+        previous = _install_ha_stubs()
+        try:
+            return _load_light_module()
+        finally:
+            _restore_ha_modules(previous)
+    return _load_light_module()
 
 
 light = _load_light()

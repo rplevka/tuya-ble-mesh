@@ -50,6 +50,7 @@
         "data": {
           "adapter": "Bluetooth adapter",
           "beacon_key": "Beacon key",
+          "bulb": "Bulb",
           "local_key": "Local key"
         }
       },
@@ -60,6 +61,7 @@
           "adapter": "Bluetooth adapter",
           "source_id": "Source ID (hex)",
           "beacon_key": "Beacon key",
+          "bulb": "Bulb",
           "local_key": "Local key"
         }
       }
@@ -70,7 +72,9 @@
       "no_devices": "No P2 bulbs were discovered. Try again or enter the bulb manually.",
       "invalid_mac": "Enter a valid Bluetooth MAC address.",
       "invalid_key": "The key must be 16 ASCII characters or 32 hexadecimal digits.",
+      "invalid_name": "Enter a name for the bulb.",
       "invalid_node_id": "Enter a node ID between 0 and 65535.",
+      "duplicate_mac": "A bulb with this MAC address is already configured.",
       "invalid_source_id": "Enter a source ID between 0 and 65535.",
       "invalid_sequence_seed": "Enter a sequence seed between 0 and 65535.",
       "test_failed": "The test command could not be sent. Check the adapter and try again.",
@@ -87,7 +91,7 @@
     "step": {
       "init": {
         "title": "Tuya P2 Mesh options",
-        "description": "Add another bulb or update the integration settings.",
+        "description": "Configured bulbs: {bulbs}. Add another bulb or update the integration settings.",
         "menu_options": {
           "add_device": "Add a bulb"
         }
@@ -109,7 +113,9 @@
       "no_devices": "No P2 bulbs were discovered. Try again or enter the bulb manually.",
       "invalid_mac": "Enter a valid Bluetooth MAC address.",
       "invalid_key": "The key must be 16 ASCII characters or 32 hexadecimal digits.",
+      "invalid_name": "Enter a name for the bulb.",
       "invalid_node_id": "Enter a node ID between 0 and 65535.",
+      "duplicate_mac": "A bulb with this MAC address is already configured.",
       "test_failed": "The test command could not be sent. Check the adapter and try again.",
       "unknown": "Unexpected error."
     },

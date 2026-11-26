@@ -521,3 +521,7 @@ class AsyncP2Radio:
         return await self.hass.async_add_executor_job(
             self.radio.scan, seconds
         )
+
+    async def close(self) -> None:
+        """Close the underlying radio without blocking the event loop."""
+        await self.hass.async_add_executor_job(self.radio.close)

@@ -50,6 +50,8 @@ class _AsyncRadio(Protocol):
 
     async def scan(self, seconds: float) -> list[RawAdvertisement]: ...
 
+    async def close(self) -> None: ...
+
 
 @dataclass(frozen=True)
 class BulbConfig:
@@ -258,6 +260,10 @@ class P2Controller:
         """Send DP 1 ON followed by DP 1 OFF as a transmission test."""
         await self.send(bulb, [(1, "bool", True)])
         await self.send(bulb, [(1, "bool", False)])
+
+    async def async_close(self) -> None:
+        """Close the underlying radio transport."""
+        await self._radio.close()
 
     async def _advertise(self, frame: bytes) -> None:
         try:
