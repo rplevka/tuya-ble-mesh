@@ -81,7 +81,7 @@ class TuyaP2Light(LightEntity):
         )
         self._attr_is_on = None
         self._attr_brightness = None
-        self._attr_color_mode = None
+        self._attr_color_mode = ColorMode.COLOR_TEMP
         self._attr_hs_color = None
         self._attr_color_temp_kelvin = None
 
