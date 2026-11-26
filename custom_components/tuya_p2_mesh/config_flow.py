@@ -316,10 +316,12 @@ def _capture_schema() -> vol.Schema:
     )
 
 
-def _test_schema() -> vol.Schema:
+def _test_schema(confirmed_default: bool = True) -> vol.Schema:
     return vol.Schema(
         {
-            vol.Required(CONF_CONFIRMED, default=True): BooleanSelector(),
+            vol.Required(
+                CONF_CONFIRMED, default=confirmed_default
+            ): BooleanSelector(),
         }
     )
 
@@ -348,6 +350,7 @@ class TuyaP2MeshConfigFlow(ConfigFlow, domain=DOMAIN):
         self._bulb: dict[str, Any] | None = None
         self._beacon_key: str | None = None
         self._test_sent = False
+        self._confirm_default = True
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -525,30 +528,28 @@ class TuyaP2MeshConfigFlow(ConfigFlow, domain=DOMAIN):
 
         errors: dict[str, str] = {}
         if user_input is not None:
-            if user_input.get(CONF_CONFIRMED):
-                if self._test_sent:
-                    return self.async_create_entry(
-                        title=f"Tuya P2 Mesh ({self._adapter})",
-                        data=self._entry_data(),
-                    )
-                errors["base"] = "test_failed"
-                return self.async_show_form(
-                    step_id="test",
-                    data_schema=_test_schema(),
-                    errors=errors,
+            if user_input.get(CONF_CONFIRMED) and self._test_sent:
+                return self.async_create_entry(
+                    title=f"Tuya P2 Mesh ({self._adapter})",
+                    data=self._entry_data(),
                 )
-            self._test_sent = False
+            if not user_input.get(CONF_CONFIRMED):
+                self._test_sent = False
 
         if not self._test_sent:
             try:
                 await self._async_send_test()
             except (KeyError, OSError, RadioError, TypeError, ValueError):
                 errors["base"] = "test_failed"
+                self._confirm_default = False
             else:
                 self._test_sent = True
+                self._confirm_default = True
         return self.async_show_form(
             step_id="test",
-            data_schema=_test_schema(),
+            data_schema=_test_schema(
+                getattr(self, "_confirm_default", True)
+            ),
             errors=errors,
         )
 

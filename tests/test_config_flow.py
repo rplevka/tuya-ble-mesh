@@ -227,6 +227,44 @@ async def test_manual_device_entry_creates_entry(
     assert entries[0].data == data
 
 
+async def test_test_step_retries_failed_send(
+    hass, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    send = AsyncMock(side_effect=[RadioError("adapter busy"), None])
+    monkeypatch.setattr(
+        config_flow.TuyaP2MeshConfigFlow, "_async_send_test", send
+    )
+
+    result = await _advance_to_device(hass)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], _device_input(beacon_key=BEACON_KEY)
+    )
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "test"
+    assert result["errors"] == {"base": "test_failed"}
+    assert result["data_schema"]({})[CONF_CONFIRMED] is False
+    assert send.await_count == 1
+
+    # The obvious normal submission retries the failed send and re-renders.
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_CONFIRMED: True}
+    )
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "test"
+    assert result["errors"] == {}
+    assert result["data_schema"]({})[CONF_CONFIRMED] is True
+    assert send.await_count == 2
+
+    # Confirming the successful retry creates the entry.
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_CONFIRMED: True}
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["data"][CONF_BULBS] == [_bulb()]
+
+
 async def test_scan_step_lists_discovered_devices(
     hass, monkeypatch: pytest.MonkeyPatch
 ) -> None:
