@@ -47,7 +47,7 @@ def test_defaults():
     assert const.DEFAULT_ADAPTER == "hci0"
     assert const.DEFAULT_SOURCE_ID == 0x7D00
     assert const.DEFAULT_SEQUENCE_SEED == 0x4000
-    assert const.DEFAULT_ADVERTISING_SECONDS == 3.0
+    assert const.DEFAULT_ADVERTISING_SECONDS == 0.5
 
 
 def test_brightness_and_temperature_ranges():

@@ -1,4 +1,5 @@
 import dp
+import p2
 
 
 def test_brightness_mapping():
@@ -36,29 +37,52 @@ def test_color_command_groups():
         {"state": "ON", "color": {"h": 0, "s": 100}, "brightness": 255}
     )
     assert groups == [
-        (2, [(2, "enum", 1)]),
-        (11, [(11, "raw", b"\x00\x00dd")]),
-        (1, [(1, "bool", True)]),
+        (
+            2,
+            [
+                (2, "enum", 1),
+                (11, "raw", b"\x00\x00dd"),
+                (1, "bool", True),
+            ],
+        )
     ]
+    assert [len(p2.encode_dps(dps)) for _, dps in groups] == [12]
 
 
 def test_color_temp_command_groups():
     groups = dp.command_groups(
         {"state": "ON", "color_temp": 250, "brightness": 128}
     )
-    assert groups[0] == (2, [(2, "enum", 0)])
-    assert groups[1][0] == 4
-    assert groups[2][0] == 3
-    assert groups[3] == (1, [(1, "bool", True)])
+    assert groups == [
+        (2, [(2, "enum", 0), (4, "value", 720)]),
+        (3, [(3, "value", 507), (1, "bool", True)]),
+    ]
+    assert [len(p2.encode_dps(dps)) for _, dps in groups] == [9, 9]
+
+
+def test_color_temp_without_brightness_command_groups():
+    groups = dp.command_groups({"state": "ON", "color_temp": 250})
+    assert groups == [
+        (2, [(2, "enum", 0), (4, "value", 720), (1, "bool", True)])
+    ]
+    assert [len(p2.encode_dps(dps)) for _, dps in groups] == [12]
 
 
 def test_brightness_only_command_groups():
     groups = dp.command_groups({"state": "ON", "brightness": 128})
     assert groups == [
-        (3, [(3, "value", 507)]),
-        (1, [(1, "bool", True)]),
+        (3, [(3, "value", 507), (1, "bool", True)]),
     ]
+    assert [len(p2.encode_dps(dps)) for _, dps in groups] == [9]
+
+
+def test_bare_on_command_groups():
+    groups = dp.command_groups({"state": "ON"})
+    assert groups == [(1, [(1, "bool", True)])]
+    assert [len(p2.encode_dps(dps)) for _, dps in groups] == [3]
 
 
 def test_off_command_groups():
-    assert dp.command_groups({"state": "OFF"}) == [(1, [(1, "bool", False)])]
+    groups = dp.command_groups({"state": "OFF"})
+    assert groups == [(1, [(1, "bool", False)])]
+    assert [len(p2.encode_dps(dps)) for _, dps in groups] == [3]

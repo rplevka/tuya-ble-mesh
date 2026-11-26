@@ -91,7 +91,7 @@ class TuyaP2Light(LightEntity):
         return self._controller.available
 
     async def async_turn_on(self, **kwargs: Any) -> None:
-        """Send the requested light state and update optimistic state."""
+        """Write optimistic state, then send the requested light state."""
         cmd: dict[str, Any] = {"state": "ON"}
         hs_color: tuple[float, float] | None = None
         color_temp_kelvin: int | None = None
@@ -105,7 +105,7 @@ class TuyaP2Light(LightEntity):
         elif ATTR_COLOR_TEMP_KELVIN in kwargs:
             color_temp_kelvin = _clamp_kelvin(kwargs[ATTR_COLOR_TEMP_KELVIN])
             cmd["color_temp"] = round(_MIRED_PER_KELVIN / color_temp_kelvin)
-        await self._send(dp.command_groups(cmd))
+        groups = dp.command_groups(cmd)
         self._attr_is_on = True
         if ATTR_BRIGHTNESS in kwargs:
             self._attr_brightness = kwargs[ATTR_BRIGHTNESS]
@@ -116,12 +116,14 @@ class TuyaP2Light(LightEntity):
             self._attr_color_temp_kelvin = color_temp_kelvin
             self._attr_color_mode = ColorMode.COLOR_TEMP
         self.async_write_ha_state()
+        await self._send(groups)
 
     async def async_turn_off(self, **kwargs: Any) -> None:
-        """Send DP 1 false and update optimistic state."""
-        await self._send(dp.command_groups({"state": "OFF"}))
+        """Write optimistic off state, then send DP 1 false."""
+        groups = dp.command_groups({"state": "OFF"})
         self._attr_is_on = False
         self.async_write_ha_state()
+        await self._send(groups)
 
     async def _send(
         self, groups: list[tuple[int, list[tuple[int, str, object]]]]

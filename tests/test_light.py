@@ -14,6 +14,8 @@ import types
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 COMPONENT_DIR = (
     Path(__file__).parents[1] / "custom_components" / "tuya_p2_mesh"
 )
@@ -212,14 +214,20 @@ light = _load_light()
 
 
 class FakeController:
-    """Controller double that records the DP groups sent by the entity."""
+    """Controller double that records state writes and sends in order."""
 
     available = True
 
     def __init__(self) -> None:
         self.calls: list[tuple[Any, list[tuple[int, str, object]]]] = []
+        self.events: list[tuple[str, Any]] = []
+        self.fail = False
 
     async def send(self, bulb: Any, dps: list[tuple[int, str, object]]) -> None:
+        self.events.append(("send", dps))
+        if self.fail:
+            self.available = False
+            raise OSError("radio failed")
         self.calls.append((bulb, dps))
 
 
@@ -234,7 +242,9 @@ def make_entity() -> tuple[Any, FakeController, list[dict[str, Any]]]:
 
     def write_state() -> None:
         # Home Assistant computes state_attributes while writing state.
-        writes.append(entity.state_attributes)
+        attributes = entity.state_attributes
+        writes.append(attributes)
+        controller.events.append(("write", attributes))
 
     entity.async_write_ha_state = write_state
     return entity, controller, writes
@@ -261,10 +271,45 @@ def test_brightness_only_turn_on_preserves_color_mode() -> None:
     assert entity.brightness == 128
     assert entity.color_mode == default_mode
     assert writes[-1]["color_mode"] == default_mode
-    assert controller.calls[-2:] == [
-        (entity._bulb, [(3, "value", 507)]),
-        (entity._bulb, [(1, "bool", True)]),
+    assert controller.calls[-1:] == [
+        (entity._bulb, [(3, "value", 507), (1, "bool", True)]),
     ]
+
+
+def test_turn_on_writes_optimistic_state_before_sending() -> None:
+    entity, controller, writes = make_entity()
+
+    asyncio.run(entity.async_turn_on(brightness=128))
+
+    assert [kind for kind, _ in controller.events] == ["write", "send"]
+    assert writes[-1]["color_mode"] == light.ColorMode.COLOR_TEMP
+    assert entity.is_on is True
+    assert entity.brightness == 128
+
+
+def test_turn_off_writes_optimistic_state_before_sending() -> None:
+    entity, controller, writes = make_entity()
+
+    asyncio.run(entity.async_turn_off())
+
+    assert [kind for kind, _ in controller.events] == ["write", "send"]
+    assert entity.is_on is False
+    assert writes[-1]["color_mode"] is None
+    assert controller.calls == [(entity._bulb, [(1, "bool", False)])]
+
+
+def test_send_failure_keeps_optimistic_state_and_raises() -> None:
+    entity, controller, writes = make_entity()
+    controller.fail = True
+
+    with pytest.raises(OSError):
+        asyncio.run(entity.async_turn_on(brightness=128))
+
+    assert [kind for kind, _ in controller.events] == ["write", "send"]
+    assert entity.is_on is True
+    assert entity.brightness == 128
+    assert writes[-1]["color_mode"] == light.ColorMode.COLOR_TEMP
+    assert entity.available is False
 
 
 def test_hs_turn_on_sets_hs_color_mode() -> None:

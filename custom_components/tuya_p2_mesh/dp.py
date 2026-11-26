@@ -52,72 +52,84 @@ def hs_to_dp11(h: int, s: int, v: int) -> bytes:
 def command_groups(
     cmd: dict,
 ) -> list[tuple[int, list[tuple[int, str, object]]]]:
-    """Translate light service data into ordered DP command groups.
+    """Translate light service data into ordered, packed DP groups.
 
-    A colour command sets DP 2 to colour mode and encodes the brightness as
-    the value component of DP 11. A colour-temperature command sets DP 2 to
-    white mode, sends DP 4, and sends DP 3 when a brightness was supplied.
-    Brightness-only commands send DP 3. Every command ends with DP 1.
+    Each group is sent as its own P2 frame. Compatible DPs are packed into
+    one group while the encoded payload stays within 16 bytes, and the
+    switch is always last. A colour command fits in one frame because its
+    brightness is carried as the value component of DP 11. A colour
+    temperature with brightness uses two frames so the switch can share the
+    second frame with DP 3.
     """
     on = str(cmd.get("state", "ON")).upper() == "ON"
     brightness = cmd.get("brightness")
     color = cmd.get("color")
     color_temp = cmd.get("color_temp")
 
-    groups: list[tuple[int, list[tuple[int, str, object]]]] = []
-    if on:
-        if color is not None:
-            value = (
-                round(int(brightness) * _HA_PERCENT_MAX / _HA_BRIGHTNESS_MAX)
-                if brightness is not None
-                else _HA_PERCENT_MAX
+    if not on:
+        return [(const.DP_SWITCH, [(const.DP_SWITCH, "bool", False)])]
+
+    if color is not None:
+        value = (
+            round(int(brightness) * _HA_PERCENT_MAX / _HA_BRIGHTNESS_MAX)
+            if brightness is not None
+            else _HA_PERCENT_MAX
+        )
+        return [
+            (
+                const.DP_MODE,
+                [
+                    (const.DP_MODE, "enum", 1),
+                    (
+                        const.DP_COLOR,
+                        "raw",
+                        hs_to_dp11(int(color["h"]), int(color["s"]), value),
+                    ),
+                    (const.DP_SWITCH, "bool", True),
+                ],
             )
-            groups.append((const.DP_MODE, [(const.DP_MODE, "enum", 1)]))
-            groups.append(
+        ]
+
+    if color_temp is not None:
+        mode_and_temp = [
+            (const.DP_MODE, "enum", 0),
+            (const.DP_TEMP, "value", mired_to_dp(int(color_temp))),
+        ]
+        if brightness is None:
+            return [
                 (
-                    const.DP_COLOR,
-                    [
-                        (
-                            const.DP_COLOR,
-                            "raw",
-                            hs_to_dp11(int(color["h"]), int(color["s"]), value),
-                        )
-                    ],
+                    const.DP_MODE,
+                    [*mode_and_temp, (const.DP_SWITCH, "bool", True)],
                 )
-            )
-        elif color_temp is not None:
-            groups.append((const.DP_MODE, [(const.DP_MODE, "enum", 0)]))
-            groups.append(
-                (
-                    const.DP_TEMP,
-                    [(const.DP_TEMP, "value", mired_to_dp(int(color_temp)))],
-                )
-            )
-            if brightness is not None:
-                groups.append(
+            ]
+        return [
+            (const.DP_MODE, mode_and_temp),
+            (
+                const.DP_BRIGHT,
+                [
                     (
                         const.DP_BRIGHT,
-                        [
-                            (
-                                const.DP_BRIGHT,
-                                "value",
-                                brightness_to_dp(int(brightness)),
-                            )
-                        ],
-                    )
-                )
-        elif brightness is not None:
-            groups.append(
-                (
-                    const.DP_BRIGHT,
-                    [
-                        (
-                            const.DP_BRIGHT,
-                            "value",
-                            brightness_to_dp(int(brightness)),
-                        )
-                    ],
-                )
+                        "value",
+                        brightness_to_dp(int(brightness)),
+                    ),
+                    (const.DP_SWITCH, "bool", True),
+                ],
+            ),
+        ]
+
+    if brightness is not None:
+        return [
+            (
+                const.DP_BRIGHT,
+                [
+                    (
+                        const.DP_BRIGHT,
+                        "value",
+                        brightness_to_dp(int(brightness)),
+                    ),
+                    (const.DP_SWITCH, "bool", True),
+                ],
             )
-    groups.append((const.DP_SWITCH, [(const.DP_SWITCH, "bool", on)]))
-    return groups
+        ]
+
+    return [(const.DP_SWITCH, [(const.DP_SWITCH, "bool", True)])]

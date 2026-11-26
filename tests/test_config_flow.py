@@ -193,7 +193,7 @@ async def test_user_step_shows_adapter_and_source_defaults(hass) -> None:
     assert defaults[CONF_ADAPTER] == ADAPTER
     assert defaults[CONF_SOURCE_ID] == "7D00"
     assert defaults[CONF_SEQUENCE_SEED] == "4000"
-    assert defaults[CONF_ADVERTISING_SECONDS] == 3.0
+    assert defaults[CONF_ADVERTISING_SECONDS] == 0.5
 
 
 async def test_manual_device_entry_creates_entry(
