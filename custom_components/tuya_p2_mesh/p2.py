@@ -225,7 +225,7 @@ def derive_beacon_key(frame: bytes, local_key: bytes, known_payload: bytes) -> b
     """Recover the beacon XOR key from a captured frame with known plaintext."""
     if len(frame) != P2_FRAME_LEN:
         raise ValueError("P2 frame must be 26 bytes")
-    if frame[0] != 0x0B or frame[7] != 0x05:
+    if ((frame[0] >> 3) & 0x0F) != 1 or frame[7] != 0x05:
         raise ValueError("not a P2 DP command")
     plaintext = known_payload.ljust(16, b"\0")
     if crc8(plaintext) != frame[8]:

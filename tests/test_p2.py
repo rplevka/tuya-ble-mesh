@@ -50,6 +50,12 @@ def test_derive_beacon_key_rejects_wrong_payload():
         raise AssertionError("expected ValueError")
 
 
+def test_derive_beacon_key_accepts_relayed_hop_two():
+    off = p2.build(1, 5, 0x7D00, 0x0010, 1, p2.DP_OFF_PAYLOAD, LOCAL, MASK, hop=2)
+    assert off[0] == 0x0A
+    assert p2.derive_beacon_key(off, LOCAL, p2.DP_OFF_PAYLOAD) == MASK
+
+
 def test_dp11_raw_round_trip():
     payload = p2.encode_dps([(11, "raw", bytes([0, 240, 100, 50]))])
     assert payload.hex() == "0b0400f06432"
