@@ -41,6 +41,20 @@ Home Assistant Bluetooth proxies (ESPHome, Shelly, etc.) are **not** usable as
 the radio for this integration: they are scan-only. The integration needs a
 local adapter it can advertise from.
 
+## Getting the bulb's details
+
+The MAC address is normally on the bulb label/box. The local key is a Tuya
+cloud secret and is **not shown in the Tuya app**; fetch it once from the Tuya
+IoT platform (or a future QR-login flow). The node ID is the P2 mesh address,
+learned by starting the **Discover** scan and toggling the bulb OFF/ON in the
+Tuya app; the scan line shows `node XXXX`. Ignore `node 8000` (broadcast).
+
+Full step-by-step instructions, including the Tuya IoT platform path:
+[docs/getting-keys.md](docs/getting-keys.md).
+
+The beacon key is captured locally by the wizard; it is not a value you need
+to look up.
+
 ### Container installs
 
 HACS installs files into Home Assistant's configuration directory. It cannot
@@ -80,8 +94,12 @@ integration.
    selection empty and enter its Bluetooth address manually. P2 bulbs do not
    advertise while idle, so manual entry is the normal path for bulbs that are
    already installed.
-3. **Bulb details.** Enter the Bluetooth address, node ID (hex), local key, and
-   a friendly name. The beacon key is optional here.
+3. **Bulb details.** Enter the Bluetooth address from the bulb label, the node
+   ID (hex), local key, and a friendly name. See
+   [docs/getting-keys.md](docs/getting-keys.md) for finding the MAC, local key,
+   and node ID. The node is shown in the Discover scan when you toggle the bulb
+   in the app; `node 8000`/`8001` is a broadcast, not a bulb. The beacon key is
+   optional here.
 4. **Beacon key.** If no beacon key was entered, the flow watches for the
    bulb's OFF and ON frames for up to 30 seconds. Toggle the bulb OFF and ON in
    the Tuya app during that window, or enter the beacon key manually.
