@@ -1,0 +1,120 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Tuya P2 Mesh",
+        "description": "Select the Bluetooth adapter dedicated to this integration and confirm the P2 source settings.",
+        "data": {
+          "adapter": "Bluetooth adapter",
+          "source_id": "Source ID (hex)",
+          "sequence_seed": "Sequence seed (hex)",
+          "advertising_seconds": "Advertising duration (seconds)"
+        }
+      },
+      "scan": {
+        "title": "Discover a P2 bulb",
+        "description": "Select a discovered bulb, or enter its MAC address manually.",
+        "data": {
+          "device": "Discovered bulb",
+          "mac": "MAC address (manual entry)"
+        }
+      },
+      "device": {
+        "title": "Bulb details",
+        "description": "Enter the bulb's Bluetooth address, node ID, local key, and a friendly name.",
+        "data": {
+          "mac": "MAC address",
+          "node_id": "Node ID (hex)",
+          "local_key": "Local key",
+          "name": "Name",
+          "beacon_key": "Beacon key"
+        }
+      },
+      "capture": {
+        "title": "Capture the beacon key",
+        "description": "Toggle the bulb OFF and ON in the Tuya app while this step watches for both frames. You can also enter the beacon key manually.",
+        "data": {
+          "beacon_key": "Beacon key (manual entry)"
+        }
+      },
+      "test": {
+        "title": "Test the bulb",
+        "description": "Confirm that the bulb turned on and off in response to the test command.",
+        "data": {
+          "confirmed": "The bulb responded to the test"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Reauthenticate Tuya P2 Mesh",
+        "description": "Enter the updated adapter, beacon key, or local key.",
+        "data": {
+          "adapter": "Bluetooth adapter",
+          "beacon_key": "Beacon key",
+          "local_key": "Local key"
+        }
+      },
+      "reconfigure": {
+        "title": "Reconfigure Tuya P2 Mesh",
+        "description": "Update the adapter, source ID, beacon key, or a bulb's local key.",
+        "data": {
+          "adapter": "Bluetooth adapter",
+          "source_id": "Source ID (hex)",
+          "beacon_key": "Beacon key",
+          "local_key": "Local key"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "The Bluetooth adapter could not be opened. Check the adapter name and permissions.",
+      "capture_failed": "Could not capture a matching OFF/ON frame pair. Toggle the bulb again or enter the beacon key manually.",
+      "no_devices": "No P2 bulbs were discovered. Try again or enter the bulb manually.",
+      "invalid_mac": "Enter a valid Bluetooth MAC address.",
+      "invalid_key": "The key must be 16 ASCII characters or 32 hexadecimal digits.",
+      "invalid_node_id": "Enter a node ID between 0 and 65535.",
+      "invalid_source_id": "Enter a source ID between 0 and 65535.",
+      "invalid_sequence_seed": "Enter a sequence seed between 0 and 65535.",
+      "test_failed": "The test command could not be sent. Check the adapter and try again.",
+      "unknown": "Unexpected error."
+    },
+    "abort": {
+      "already_configured": "This adapter is already configured.",
+      "no_adapter": "No Bluetooth adapter was found.",
+      "reauth_successful": "Reauthentication was successful.",
+      "reconfigure_successful": "Reconfiguration was successful."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Tuya P2 Mesh options",
+        "description": "Add another bulb or update the integration settings.",
+        "menu_options": {
+          "add_device": "Add a bulb"
+        }
+      },
+      "add_device": {
+        "title": "Add a bulb",
+        "description": "Enter the new bulb's Bluetooth address, node ID, local key, and a friendly name.",
+        "data": {
+          "mac": "MAC address",
+          "node_id": "Node ID (hex)",
+          "local_key": "Local key",
+          "name": "Name"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "The Bluetooth adapter could not be opened. Check the adapter name and permissions.",
+      "capture_failed": "Could not capture a matching OFF/ON frame pair. Toggle the bulb again or enter the beacon key manually.",
+      "no_devices": "No P2 bulbs were discovered. Try again or enter the bulb manually.",
+      "invalid_mac": "Enter a valid Bluetooth MAC address.",
+      "invalid_key": "The key must be 16 ASCII characters or 32 hexadecimal digits.",
+      "invalid_node_id": "Enter a node ID between 0 and 65535.",
+      "test_failed": "The test command could not be sent. Check the adapter and try again.",
+      "unknown": "Unexpected error."
+    },
+    "abort": {
+      "already_configured": "This adapter is already configured."
+    }
+  }
+}
