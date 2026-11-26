@@ -97,6 +97,14 @@
         }
       },
       "add_device": {
+        "title": "Discover a P2 bulb",
+        "description": "Select a discovered bulb, or enter its MAC address manually.",
+        "data": {
+          "device": "Discovered bulb",
+          "mac": "MAC address (manual entry)"
+        }
+      },
+      "add_device_details": {
         "title": "Add a bulb",
         "description": "Enter the new bulb's Bluetooth address, node ID, local key, and a friendly name.",
         "data": {

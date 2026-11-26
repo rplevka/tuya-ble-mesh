@@ -188,6 +188,39 @@ async def _async_controller(
     )
 
 
+async def _async_scan(
+    hass: HomeAssistant,
+    *,
+    adapter: str,
+    source_id: int,
+    advertising_seconds: float,
+    sequence_seed: int,
+    beacon_key: bytes,
+    errors: dict[str, str],
+) -> list[P2Advertisement]:
+    """Scan for advertisements and record a form error on failure."""
+    advertisements: list[P2Advertisement] = []
+    controller = None
+    try:
+        controller = await _async_controller(
+            hass,
+            adapter=adapter,
+            source_id=source_id,
+            advertising_seconds=advertising_seconds,
+            sequence_seed=sequence_seed,
+            beacon_key=beacon_key,
+        )
+        advertisements = await controller.scan(SCAN_SECONDS)
+    except (KeyError, OSError, RadioError, TypeError, ValueError):
+        errors.setdefault("base", "cannot_connect")
+    finally:
+        if controller is not None:
+            await controller.async_close()
+    if not advertisements and "base" not in errors:
+        errors["base"] = "no_devices"
+    return advertisements
+
+
 def _user_schema(adapters: list[str], adapter: str) -> vol.Schema:
     options = list(adapters)
     if adapter not in options:
@@ -392,25 +425,15 @@ class TuyaP2MeshConfigFlow(ConfigFlow, domain=DOMAIN):
             else:
                 return await self.async_step_device()
 
-        advertisements: list[P2Advertisement] = []
-        controller = None
-        try:
-            controller = await _async_controller(
-                self.hass,
-                adapter=self._adapter,
-                source_id=self._source_id,
-                advertising_seconds=self._advertising_seconds,
-                sequence_seed=self._sequence_seed,
-                beacon_key=bytes(16),
-            )
-            advertisements = await controller.scan(SCAN_SECONDS)
-        except (KeyError, RadioError, OSError, TypeError, ValueError):
-            errors.setdefault("base", "cannot_connect")
-        finally:
-            if controller is not None:
-                await controller.async_close()
-        if not advertisements and "base" not in errors:
-            errors["base"] = "no_devices"
+        advertisements = await _async_scan(
+            self.hass,
+            adapter=self._adapter,
+            source_id=self._source_id,
+            advertising_seconds=self._advertising_seconds,
+            sequence_seed=self._sequence_seed,
+            beacon_key=bytes(16),
+            errors=errors,
+        )
         return self.async_show_form(
             step_id="scan",
             data_schema=_scan_schema(advertisements),
@@ -722,10 +745,10 @@ def _reconfigure_schema(entry: ConfigEntry) -> vol.Schema:
     )
 
 
-def _options_device_schema() -> vol.Schema:
+def _options_device_schema(mac: str = "") -> vol.Schema:
     return vol.Schema(
         {
-            vol.Required(CONF_MAC, default=""): str,
+            vol.Required(CONF_MAC, default=mac): str,
             vol.Required(CONF_NODE_ID, default=""): str,
             vol.Required(CONF_LOCAL_KEY, default=""): str,
             vol.Required(CONF_NAME, default=""): str,
@@ -752,12 +775,59 @@ class TuyaP2MeshOptionsFlow(OptionsFlow):
     async def async_step_add_device(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Test and append a manually entered bulb."""
+        """Discover a new bulb, with a manual MAC fallback."""
+        entry = self.config_entry
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            chosen = str(
+                user_input.get(CONF_DEVICE)
+                or user_input.get(CONF_MAC)
+                or ""
+            ).strip()
+            if not chosen:
+                self._pending_mac = ""
+                return await self.async_step_add_device_details()
+            try:
+                self._pending_mac = _parse_mac(chosen)
+            except ValueError:
+                errors["base"] = "invalid_mac"
+            else:
+                return await self.async_step_add_device_details()
+
+        advertisements = await _async_scan(
+            self.hass,
+            adapter=entry.data[CONF_ADAPTER],
+            source_id=int(
+                entry.data.get(CONF_SOURCE_ID, DEFAULT_SOURCE_ID)
+            ),
+            advertising_seconds=float(
+                entry.data.get(
+                    CONF_ADVERTISING_SECONDS,
+                    DEFAULT_ADVERTISING_SECONDS,
+                )
+            ),
+            sequence_seed=int(
+                entry.data.get(CONF_SEQUENCE_SEED, DEFAULT_SEQUENCE_SEED)
+            ),
+            beacon_key=key_bytes(entry.data[CONF_BEACON_KEY]),
+            errors=errors,
+        )
+        return self.async_show_form(
+            step_id="add_device",
+            data_schema=_scan_schema(advertisements),
+            errors=errors,
+        )
+
+    async def async_step_add_device_details(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Test and append a discovered or manually entered bulb."""
         entry = self.config_entry
         errors: dict[str, str] = {}
         if user_input is not None:
             bulb, errors = _bulb_from_input(user_input)
             if not errors:
+                self._pending_mac = bulb[CONF_MAC]
                 if any(
                     existing[CONF_MAC] == bulb[CONF_MAC]
                     for existing in entry.data[CONF_BULBS]
@@ -784,8 +854,10 @@ class TuyaP2MeshOptionsFlow(OptionsFlow):
                             title="", data=dict(entry.options)
                         )
         return self.async_show_form(
-            step_id="add_device",
-            data_schema=_options_device_schema(),
+            step_id="add_device_details",
+            data_schema=_options_device_schema(
+                getattr(self, "_pending_mac", "")
+            ),
             errors=errors,
         )
 

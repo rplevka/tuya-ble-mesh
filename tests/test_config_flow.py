@@ -348,6 +348,18 @@ async def test_capture_mismatch_shows_error(
 
 async def test_options_add_device(hass, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(P2Controller, "test", AsyncMock())
+    advertisement = P2Advertisement(
+        mac=MAC2,
+        rssi=-50,
+        frame=b"\0" * 26,
+        src=0x8000,
+        dst=0x11,
+        seq=8,
+        subcmd=5,
+    )
+    monkeypatch.setattr(
+        P2Controller, "scan", AsyncMock(return_value=[advertisement])
+    )
     entry = _make_entry(hass)
 
     result = await hass.config_entries.options.async_init(entry.entry_id)
@@ -358,7 +370,20 @@ async def test_options_add_device(hass, monkeypatch: pytest.MonkeyPatch) -> None
     result = await hass.config_entries.options.async_configure(
         result["flow_id"], {"next_step_id": "add_device"}
     )
+    assert result["type"] is FlowResultType.FORM
     assert result["step_id"] == "add_device"
+    selector = _field(result["data_schema"], CONF_DEVICE)
+    options = [
+        option["value"] if isinstance(option, dict) else option
+        for option in selector.config["options"]
+    ]
+    assert MAC2 in options
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {CONF_DEVICE: MAC2}
+    )
+    assert result["step_id"] == "add_device_details"
+    assert result["data_schema"]({})[CONF_MAC] == MAC2
 
     result = await hass.config_entries.options.async_configure(
         result["flow_id"],
@@ -375,6 +400,44 @@ async def test_options_add_device(hass, monkeypatch: pytest.MonkeyPatch) -> None
         _bulb(),
         _bulb(mac=MAC2, node_id=0x11, local_key=LOCAL_KEY2, name="Kitchen"),
     ]
+    assert entry.data[CONF_ADAPTER] == ADAPTER
+    assert entry.data[CONF_BEACON_KEY] == BEACON_KEY.lower()
+
+
+async def test_options_add_device_manual_entry(
+    hass, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(P2Controller, "test", AsyncMock())
+    entry = _make_entry(hass)
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "add_device"}
+    )
+    assert result["step_id"] == "add_device"
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {}
+    )
+    assert result["step_id"] == "add_device_details"
+    assert result["data_schema"]({})[CONF_MAC] == ""
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            CONF_MAC: MAC2,
+            CONF_NODE_ID: "0011",
+            CONF_LOCAL_KEY: LOCAL_KEY2,
+            CONF_NAME: "Kitchen",
+        },
+    )
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert entry.data[CONF_BULBS] == [
+        _bulb(),
+        _bulb(mac=MAC2, node_id=0x11, local_key=LOCAL_KEY2, name="Kitchen"),
+    ]
+    assert entry.data[CONF_BEACON_KEY] == BEACON_KEY.lower()
 
 
 async def test_options_add_device_rejects_duplicate_mac(hass) -> None:
@@ -384,6 +447,10 @@ async def test_options_add_device_rejects_duplicate_mac(hass) -> None:
     result = await hass.config_entries.options.async_configure(
         result["flow_id"], {"next_step_id": "add_device"}
     )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {CONF_MAC: MAC}
+    )
+    assert result["step_id"] == "add_device_details"
     result = await hass.config_entries.options.async_configure(
         result["flow_id"],
         {
@@ -395,7 +462,7 @@ async def test_options_add_device_rejects_duplicate_mac(hass) -> None:
     )
 
     assert result["type"] is FlowResultType.FORM
-    assert result["step_id"] == "add_device"
+    assert result["step_id"] == "add_device_details"
     assert result["errors"] == {"base": "duplicate_mac"}
     assert entry.data[CONF_BULBS] == [_bulb()]
 
