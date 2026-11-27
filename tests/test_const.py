@@ -27,11 +27,19 @@ def test_dp_and_defaults():
 def test_manifest_metadata():
     m = _load_json("manifest.json")
     assert m["name"] == "Tuya P2 Mesh"
-    assert m["version"] == "0.1.0"
-    assert m["iot_class"] == "local_polling"
+    assert m["version"] == "0.2.0"
+    assert m["iot_class"] == "local_push"
     assert m["documentation"] == "https://github.com/rplevka/tuya-ble-mesh"
     assert m["issue_tracker"] == "https://github.com/rplevka/tuya-ble-mesh/issues"
     assert "requirements" not in m
+
+
+def test_hacs_metadata():
+    h = json.loads(Path("hacs.json").read_text())
+    assert h["name"] == "Tuya P2 Mesh"
+    assert h["render_readme"] is True
+    assert h["content_in_root"] is False
+    assert h["zip_release"] is False
 
 
 def test_dp_map():

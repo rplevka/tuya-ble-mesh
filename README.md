@@ -1,15 +1,19 @@
 # Tuya P2 Mesh for Home Assistant
 
+[![HACS Validation](https://github.com/rplevka/tuya-ble-mesh/actions/workflows/validate.yml/badge.svg)](https://github.com/rplevka/tuya-ble-mesh/actions/workflows/validate.yml)
+
 Local-only control of Tuya "P2" Bluetooth mesh bulbs from Home Assistant. The
 integration sends and receives raw Bluetooth LE advertising frames through a
 dedicated HCI adapter. There is no MQTT bridge and **no Tuya cloud access at
 runtime**.
 
-> **Status: 0.1.0.** The native transport and light platform are validated on
-> the laptop lab described in [docs/test-lab.md](docs/test-lab.md). The NAS
-> deployment is prepared but waits for a USB Bluetooth adapter; see
-> [docs/nas-deployment.md](docs/nas-deployment.md). Until then the existing
-> MQTT bridge remains the production fallback.
+> **Status: 0.2.0.** The native transport, light platform, and a production NAS
+> deployment are validated. The NAS runs Home Assistant with host networking
+> and a small DNS proxy for the existing Docker services; the old MQTT bridge is
+> stopped and kept as the rollback path. See
+> [docs/nas-deployment.md](docs/nas-deployment.md) for the validated recipe and
+> the local-Bluetooth conflict that must be disabled. HACS release `v0.2.0` is
+> available.
 
 ## Features
 
@@ -69,14 +73,20 @@ the `hass-homeassistant-1` compose example are in
 
 ### HACS
 
-This repository is a custom HACS integration repository:
+This repository is a HACS custom integration repository. The `v0.2.0` release
+is installable now:
 
 1. HACS → three-dot menu → **Custom repositories**.
 2. Add `https://github.com/rplevka/tuya-ble-mesh` with category
    **Integration**.
-3. Install **Tuya P2 Mesh**.
+3. Install **Tuya P2 Mesh** (HACS selects the latest release).
 4. Restart Home Assistant.
 5. **Settings → Devices & services → Add integration → Tuya P2 Mesh**.
+
+To appear in the default HACS store without adding a custom repository, the
+integration also needs a separate pull request to the
+[`hacs/default`](https://github.com/hacs/default) list. The repository is fully
+installable as a custom HACS repository as-is.
 
 ### Manual
 
@@ -89,7 +99,8 @@ integration.
 
 1. **Radio settings.** Select the adapter dedicated to this integration
    (`hci0`, `hci1`, …), the P2 source ID (default `0x7D00`), the sequence seed
-   (default `0x4000`), and the advertising duration (default `0.5` s).
+   (default `0x4000`), and the advertising duration (default `0.5` s, minimum
+   `0.2` s).
 2. **Discover a bulb.** Select a bulb from the ten-second scan, or leave the
    selection empty and enter its Bluetooth address manually. P2 bulbs do not
    advertise while idle, so manual entry is the normal path for bulbs that are
@@ -105,6 +116,11 @@ integration.
    the Tuya app during that window, or enter the beacon key manually.
 5. **Test.** The integration sends a P2 ON/OFF test. Confirm that the bulb
    visibly responded before the entry is created.
+
+Brightness-only changes preserve the current HSV colour or colour temperature.
+Rapid updates are coalesced to the latest requested state instead of building a
+radio queue. The advertising duration is a reliability margin, not a hardware
+limit: the default is `0.5` s and the minimum is `0.2` s.
 
 The options flow (**Configure**) adds more bulbs while reusing the adapter and
 beacon key. The reconfigure flow updates the adapter, source ID, advertising
@@ -182,28 +198,35 @@ near one second; increasing the duration increases latency proportionally.
 
 ## NAS deployment
 
-The production NAS has no Bluetooth adapter. The native deployment requires a
-USB Bluetooth dongle with LE advertising support, container device/capability
-changes, and the dongle within BLE range of the bulbs. See
-[docs/nas-deployment.md](docs/nas-deployment.md) for the hardware checklist,
-compose changes for `hass-homeassistant-1`, verification steps, fallback to the
-MQTT bridge, and cloud-blocking notes.
+The production NAS now runs the native integration with a TP-Link UB500
+(RTL8761B) on `hci0`. Home Assistant uses host networking, `NET_ADMIN`/
+`NET_RAW`, `seccomp=unconfined`, and a small DNS proxy so the existing Docker
+services still resolve. Host BlueZ is masked and the local adapter's built-in
+`bluetooth` config entry is disabled. The boot-time
+[`deploy/tuya-p2-radio.service`](deploy/tuya-p2-radio.service) powers the
+adapter and enables advertising after a reboot. See
+[docs/nas-deployment.md](docs/nas-deployment.md) for the compose recipe, DNS
+proxy, verification, and cloud-blocking notes.
 
-The existing bridge remains the fallback. Never run the bridge and this
-integration at the same time against the same bulbs or source ID. Before
-cutover, record the last sequence value used by the bridge and configure a
-native seed above it; the native counter must never be lower. Stop the bridge
-before the native entry starts controlling the bulbs. If the counter is ever
-lost or a stale value is suspected, follow the reseeding procedure above.
+The existing bridge remains installed as the fallback. The production
+deployment used a separate native P2 source (`0x7D02`) while the bridge stayed
+on `0x7D00`, but do not control the same bulb from both controllers at the same
+time. Stop the bridge before the native entry is used for production control.
+Record the bridge's last sequence value and seed the native entry above it if
+you switch back or recreate the counter. If the counter is ever lost or a stale
+value is suspected, follow the reseeding procedure above.
 
 ## Repository layout
 
 ```text
 custom_components/tuya_p2_mesh/   HACS integration (tuya_p2_mesh)
-tools/diagnostics/tuya_ble_mesh/ old cloud/probe diagnostic, reference only
-docs/test-lab.md                 validated laptop raw-HCI lab
-docs/nas-deployment.md           NAS dongle and compose deployment checklist
-tests/                           unit and config-flow tests
+deploy/nas_dns_proxy.py           DNS proxy for host-net HA on NAS
+deploy/tuya-p2-radio.service      boot-time hci0 power/advertising unit
+tools/diagnostics/tuya_ble_mesh/  old cloud/probe diagnostic, reference only
+docs/test-lab.md                  validated laptop raw-HCI lab
+docs/nas-deployment.md            NAS dongle and compose deployment checklist
+tests/                            unit and config-flow tests
+.github/workflows/validate.yml    HACS and hassfest validation
 ```
 
 The diagnostic probe under `tools/diagnostics/` is not installed by HACS. It
@@ -220,10 +243,12 @@ without a reason.
 | No adapter in the flow | Adapter is down or not visible to the container | Power it on the host, verify `/sys/class/bluetooth`, and restart Home Assistant. |
 | No bulbs discovered | Bulbs are idle and do not advertise | Enter the Bluetooth address manually. |
 | Test command sends but nothing happens | Wrong address, node ID, local key, beacon key, or out of range | Recheck the details, capture the beacon key again, and move the adapter closer. |
-| Every command is slow | Advertising duration too high, or many data points | Lower the advertising duration to 0.5 s; group commands send one frame per bulb. |
+| Every command is slow | Advertising duration too high, or many data points | Lower the advertising duration to `0.2` s; rapid updates coalesce to the latest state. |
 | Entity state is wrong | P2 is one-way and optimistic | Send a state-changing command; there is no reliable poll. |
+| Commands stop with `status 0x09`/`0x12`, or dmesg shows `Unexpected advertising set terminated` | Home Assistant's built-in Bluetooth integration auto-created a local `hci0` entry and is fighting raw HCI | Disable that local adapter `bluetooth` config entry (keep ESPHome/Shelly proxy entries), mask host BlueZ, power-cycle `hci0`, and reload the P2 entry. See [docs/nas-deployment.md](docs/nas-deployment.md). |
+| Brightness changes turn a coloured bulb white/orange | Old build sent brightness without the current colour mode | Update to `v0.2.0` or newer; brightness-only changes now retain HS colour or colour temperature. |
 | Entry fails with a `SequenceError` / `ConfigEntryNotReady` for the sequence counter | The counter file is corrupt or was edited while Home Assistant was running | Stop Home Assistant, back up and remove `.storage/tuya_p2_mesh_sequence.json`, then start Home Assistant and recreate the entry with a seed above the bridge's last value. |
-| Adapter disappears after reboot | Dongle re-enumerated or host Bluetooth powered it down | Keep the adapter powered on the host and prefer a stable USB port; re-check `hciN`. |
+| Adapter disappears after reboot | Dongle re-enumerated or host Bluetooth powered it down | Install `deploy/tuya-p2-radio.service`, keep the dongle in a stable USB port, and re-check `hciN`. |
 
 ## Development
 
