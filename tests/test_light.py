@@ -235,6 +235,25 @@ class FakeController:
         self.calls.append((bulb, dps))
 
 
+class BlockingController(FakeController):
+    """Controller double that holds the first send until released."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.lock = asyncio.Lock()
+        self.entered = asyncio.Event()
+        self.release = asyncio.Event()
+        self._block_first = True
+
+    async def send(self, bulb: Any, dps: list[tuple[int, str, object]]) -> None:
+        async with self.lock:
+            self.calls.append((bulb, dps))
+            if self._block_first:
+                self._block_first = False
+                self.entered.set()
+                await self.release.wait()
+
+
 def make_entity() -> tuple[Any, FakeController, list[dict[str, Any]]]:
     """Create an entity with a state writer that emulates HA's write path."""
     controller = FakeController()
@@ -319,6 +338,36 @@ def test_send_failure_keeps_entity_available_and_retryable() -> None:
     asyncio.run(entity.async_turn_on(brightness=200))
     assert controller.calls
     assert controller.calls[-1][0] is entity._bulb
+
+
+def test_rapid_commands_coalesce_to_latest_state() -> None:
+    async def scenario() -> None:
+        controller = BlockingController()
+        bulb = light.BulbConfig(
+            "AA:BB:CC:DD:EE:FF", b"0123456789ABCDEF", 16, "Office"
+        )
+        entity = light.TuyaP2Light(controller, bulb)
+        entity.async_write_ha_state = lambda: None
+
+        first = asyncio.create_task(entity.async_turn_on(brightness=100))
+        await controller.entered.wait()
+        second = asyncio.create_task(entity.async_turn_on(brightness=200))
+        third = asyncio.create_task(entity.async_turn_on(brightness=300))
+        await asyncio.sleep(0.01)
+        controller.release.set()
+        await asyncio.gather(first, second, third)
+
+        values = [
+            next(value for dp_id, _type, value in dps if dp_id == 3)
+            for _bulb, dps in controller.calls
+        ]
+        assert values == [
+            light.dp.brightness_to_dp(100),
+            light.dp.brightness_to_dp(300),
+        ]
+        assert entity.brightness == 300
+
+    asyncio.run(scenario())
 
 
 def test_hs_turn_on_sets_hs_color_mode() -> None:

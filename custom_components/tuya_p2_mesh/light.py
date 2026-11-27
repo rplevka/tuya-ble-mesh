@@ -84,6 +84,10 @@ class TuyaP2Light(LightEntity):
         self._attr_color_mode = ColorMode.COLOR_TEMP
         self._attr_hs_color = None
         self._attr_color_temp_kelvin = None
+        self._pending_send: (
+            list[tuple[int, list[tuple[int, str, object]]]] | None
+        ) = None
+        self._sending = False
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Write optimistic state, then send the requested light state."""
@@ -123,5 +127,23 @@ class TuyaP2Light(LightEntity):
     async def _send(
         self, groups: list[tuple[int, list[tuple[int, str, object]]]]
     ) -> None:
-        for _group_id, dps in groups:
-            await self._controller.send(self._bulb, dps)
+        """Send the latest requested state, coalescing rapid updates.
+
+        A slider or repeated click can enqueue many commands faster than the
+        radio can transmit them. While one transmission is in flight, keep
+        only the newest request and send it after the current one, dropping
+        superseded intermediate states.
+        """
+        self._pending_send = groups
+        if self._sending:
+            return
+        self._sending = True
+        try:
+            while self._pending_send is not None:
+                pending = self._pending_send
+                self._pending_send = None
+                for _group_id, dps in pending:
+                    await self._controller.send(self._bulb, dps)
+        finally:
+            self._sending = False
+            self._pending_send = None
