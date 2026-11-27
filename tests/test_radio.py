@@ -148,6 +148,45 @@ def test_advertise_extended_uses_extended_data(monkeypatch):
     assert any(ocf == 0x39 for ocf, _payload in calls)
 
 
+def test_advertise_extended_uses_non_connectable_parameters(monkeypatch):
+    calls = []
+    monkeypatch.setattr("time.sleep", lambda _s: None)
+    r = radio.P2Radio(
+        "hci0",
+        command_fn=lambda ocf, payload=b"", allow_disabled=False: calls.append(
+            (ocf, payload)
+        ),
+    )
+    r.extended = True
+    r.advertise(bytes(26), seconds=0.01)
+    params = next(
+        payload
+        for ocf, payload in calls
+        if ocf == radio.LE_SET_EXTENDED_ADVERTISING_PARAMETERS
+    )
+    assert params[0] == 1
+    assert params[1:3] == b"\x00\x00"
+
+
+def test_advertise_legacy_uses_non_connectable_parameters(monkeypatch):
+    calls = []
+    monkeypatch.setattr("time.sleep", lambda _s: None)
+    r = radio.P2Radio(
+        "hci0",
+        command_fn=lambda ocf, payload=b"", allow_disabled=False: calls.append(
+            (ocf, payload)
+        ),
+    )
+    r.extended = False
+    r.advertise(bytes(26), seconds=0.01)
+    params = next(
+        payload
+        for ocf, payload in calls
+        if ocf == radio.LE_SET_ADVERTISING_PARAMETERS
+    )
+    assert params[4] == 0x03
+
+
 @pytest.mark.parametrize(
     ("extended", "enable_opcode"),
     [(False, 0x0A), (True, 0x39)],

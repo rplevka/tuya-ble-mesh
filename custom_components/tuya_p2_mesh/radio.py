@@ -79,13 +79,16 @@ LE_READ_MAXIMUM_ADVERTISING_DATA_LENGTH = 0x3B
 LE_SET_EXTENDED_SCAN_PARAMETERS = 0x41
 LE_SET_EXTENDED_SCAN_ENABLE = 0x42
 
-# Payloads from the verified reference implementation.
+# P2 commands are broadcast and never need a connection. Use non-connectable
+# PDUs so a scanning central cannot occupy the controller's advertising and
+# connection resources (the RTL8761B otherwise raises HCI status 0x09 after a
+# few commands).
 _LEGACY_ADVERTISING_PARAMETERS = bytes.fromhex(
-    "200020000001000000000000000700"
+    "200020000301000000000000000700"
 )
 _LEGACY_EMPTY_SCAN_RESPONSE = b"\0" * 32
 _EXTENDED_ADVERTISING_PARAMETERS = bytes.fromhex(
-    "011300200000200000070100000000000000007f0100010000"
+    "010000200000200000070100000000000000007f0100010000"
 )
 _EXTENDED_ADVERTISING_ENABLE = bytes.fromhex("010101000000")
 _EXTENDED_SCAN_PARAMETERS = bytes.fromhex("0000010110001000")
