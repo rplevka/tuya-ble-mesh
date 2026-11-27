@@ -410,23 +410,24 @@ class P2Radio:
             )
             self.command(LE_SET_ADVERTISING_ENABLE, b"\x01")
 
-    def advertise(
-        self, frame: bytes, seconds: float = 3.0, hold: float = 0.1
-    ) -> None:
-        """Advertise one 26-byte P2 frame repeatedly for ``seconds``."""
+    def advertise(self, frame: bytes, seconds: float = 3.0) -> None:
+        """Advertise one 26-byte P2 frame continuously for ``seconds``.
+
+        Advertising is enabled once and left running for the whole duration.
+        Re-enabling an already-enabled advertising set is rejected by some
+        controllers (for example the RTL8761B returns status 0x12), and it is
+        unnecessary because the controller repeats the advertisement on its
+        own interval.
+        """
         advertisement = p2.advertisement(frame)
-        if hold <= 0:
-            raise ValueError("hold must be positive")
-        copies = max(1, round(seconds / hold))
         with self._lock:
             self._ensure_open()
             self.detect_mode()
             self.stop_advertising()
             self._prepare_advertising()
             try:
-                for _ in range(copies):
-                    self._start_advertising(advertisement)
-                    time.sleep(hold)
+                self._start_advertising(advertisement)
+                time.sleep(seconds)
             finally:
                 self.stop_advertising()
 

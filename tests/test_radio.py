@@ -148,6 +148,34 @@ def test_advertise_extended_uses_extended_data(monkeypatch):
     assert any(ocf == 0x39 for ocf, _payload in calls)
 
 
+@pytest.mark.parametrize(
+    ("extended", "enable_opcode"),
+    [(False, 0x0A), (True, 0x39)],
+)
+def test_advertise_enables_advertising_once(
+    monkeypatch, extended, enable_opcode
+):
+    frame = bytes(range(26))
+    enable_count = 0
+    monkeypatch.setattr("time.sleep", lambda _s: None)
+
+    def command_fn(ocf, payload=b"", allow_disabled=False):
+        nonlocal enable_count
+        if ocf == enable_opcode and payload and payload[0] == 1:
+            enable_count += 1
+            if enable_count > 1:
+                raise radio.RadioError(
+                    f"Bluetooth command {ocf:#04x} failed on hci0: status 0x12"
+                )
+        return b""
+
+    r = radio.P2Radio("hci0", command_fn=command_fn)
+    r.extended = extended
+    r.advertise(frame, seconds=0.5)
+
+    assert enable_count == 1
+
+
 def test_command_sends_raw_hci_packet(monkeypatch):
     sock = FakeSocket([b"\x04\x0e\x04\x01\x08\x20\x00"])
     monkeypatch.setattr(radio.socket, "socket", lambda *args: sock)
