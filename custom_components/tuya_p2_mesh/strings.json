@@ -13,7 +13,7 @@
       },
       "scan": {
         "title": "Discover a P2 bulb",
-        "description": "Select a discovered bulb, or enter its MAC address manually. To reveal the node ID, start the scan and toggle the bulb OFF/ON in the Tuya app; use the node on the app-command line, not 8000/8001. Guide: https://github.com/rplevka/tuya-ble-mesh/blob/master/docs/getting-keys.md",
+        "description": "Select a discovered bulb, or enter its MAC address manually. To reveal the node ID, start the scan and toggle the bulb OFF/ON in the Tuya app; use the node on the app-command line, not 8000/8001. See docs/getting-keys.md in the repository.",
         "data": {
           "device": "Discovered bulb",
           "mac": "MAC address (manual entry)"
@@ -21,7 +21,7 @@
       },
       "device": {
         "title": "Bulb details",
-        "description": "Enter the bulb's Bluetooth address, node ID, local key, and a friendly name. MAC: on the bulb label/box. Local key: Tuya IoT platform (it is not shown in the app). Node ID: the P2 node seen in the Discover scan when toggling the bulb (not 8000/8001). Guide: https://github.com/rplevka/tuya-ble-mesh/blob/master/docs/getting-keys.md",
+        "description": "Enter the bulb's Bluetooth address, node ID, local key, and a friendly name. MAC: on the bulb label/box. Local key: Tuya IoT platform (it is not shown in the app). Node ID: the P2 node seen in the Discover scan when toggling the bulb (not 8000/8001). See docs/getting-keys.md in the repository.",
         "data": {
           "mac": "MAC address",
           "node_id": "Node ID (hex)",
@@ -32,7 +32,7 @@
       },
       "capture": {
         "title": "Capture the beacon key",
-        "description": "Toggle the bulb OFF and ON in the Tuya app while this step watches for both frames. The beacon key is learned locally. Guide: https://github.com/rplevka/tuya-ble-mesh/blob/master/docs/getting-keys.md",
+        "description": "Toggle the bulb OFF and ON in the Tuya app while this step watches for both frames. The beacon key is learned locally. See docs/getting-keys.md in the repository.",
         "data": {
           "beacon_key": "Beacon key (manual entry)"
         }
@@ -100,7 +100,7 @@
       },
       "add_device": {
         "title": "Discover a P2 bulb",
-        "description": "Select a discovered bulb, or enter its MAC address manually. To reveal the node ID, start the scan and toggle the bulb OFF/ON in the Tuya app; use the node on the app-command line, not 8000/8001. Guide: https://github.com/rplevka/tuya-ble-mesh/blob/master/docs/getting-keys.md",
+        "description": "Select a discovered bulb, or enter its MAC address manually. To reveal the node ID, start the scan and toggle the bulb OFF/ON in the Tuya app; use the node on the app-command line, not 8000/8001. See docs/getting-keys.md in the repository.",
         "data": {
           "device": "Discovered bulb",
           "mac": "MAC address (manual entry)"
@@ -108,7 +108,7 @@
       },
       "add_device_details": {
         "title": "Add a bulb",
-        "description": "Enter the new bulb's Bluetooth address, node ID, local key, and a friendly name. MAC: on the bulb label/box. Local key: Tuya IoT platform (it is not shown in the app). Node ID: the P2 node seen in the Discover scan when toggling the bulb (not 8000/8001). Guide: https://github.com/rplevka/tuya-ble-mesh/blob/master/docs/getting-keys.md",
+        "description": "Enter the new bulb's Bluetooth address, node ID, local key, and a friendly name. MAC: on the bulb label/box. Local key: Tuya IoT platform (it is not shown in the app). Node ID: the P2 node seen in the Discover scan when toggling the bulb (not 8000/8001). See docs/getting-keys.md in the repository.",
         "data": {
           "mac": "MAC address",
           "node_id": "Node ID (hex)",
