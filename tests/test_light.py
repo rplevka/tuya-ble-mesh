@@ -95,6 +95,10 @@ class StubLightEntity:
         return self._attr_should_poll
 
     @property
+    def available(self) -> bool:
+        return True
+
+    @property
     def unique_id(self) -> str | None:
         return self._attr_unique_id
 
@@ -298,7 +302,7 @@ def test_turn_off_writes_optimistic_state_before_sending() -> None:
     assert controller.calls == [(entity._bulb, [(1, "bool", False)])]
 
 
-def test_send_failure_keeps_optimistic_state_and_raises() -> None:
+def test_send_failure_keeps_entity_available_and_retryable() -> None:
     entity, controller, writes = make_entity()
     controller.fail = True
 
@@ -309,7 +313,12 @@ def test_send_failure_keeps_optimistic_state_and_raises() -> None:
     assert entity.is_on is True
     assert entity.brightness == 128
     assert writes[-1]["color_mode"] == light.ColorMode.COLOR_TEMP
-    assert entity.available is False
+    assert entity.available is True
+
+    controller.fail = False
+    asyncio.run(entity.async_turn_on(brightness=200))
+    assert controller.calls
+    assert controller.calls[-1][0] is entity._bulb
 
 
 def test_hs_turn_on_sets_hs_color_mode() -> None:

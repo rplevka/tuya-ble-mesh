@@ -36,7 +36,7 @@ from custom_components.tuya_p2_mesh.controller import (
 )
 from custom_components.tuya_p2_mesh.radio import RadioError
 from homeassistant import config_entries
-from homeassistant.data_entry_flow import FlowResultType
+from homeassistant.data_entry_flow import FlowResultType, InvalidData
 from homeassistant.exceptions import ConfigEntryNotReady
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -627,6 +627,49 @@ async def test_reconfigure_updates_advertising_seconds(hass) -> None:
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "reconfigure_successful"
     assert entry.data[CONF_ADVERTISING_SECONDS] == 2.5
+    await hass.async_block_till_done()
+
+
+async def test_reconfigure_accepts_short_advertising_window(hass) -> None:
+    entry = _make_entry(hass)
+
+    result = await entry.start_reconfigure_flow(hass)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            CONF_ADAPTER: ADAPTER,
+            CONF_SOURCE_ID: "7D00",
+            CONF_ADVERTISING_SECONDS: 0.2,
+            CONF_BEACON_KEY: "",
+            CONF_BULB: MAC,
+            CONF_LOCAL_KEY: "",
+        },
+    )
+
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "reconfigure_successful"
+    assert entry.data[CONF_ADVERTISING_SECONDS] == 0.2
+    await hass.async_block_till_done()
+
+
+async def test_reconfigure_rejects_too_short_advertising_window(hass) -> None:
+    entry = _make_entry(hass)
+
+    result = await entry.start_reconfigure_flow(hass)
+    with pytest.raises(InvalidData):
+        await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {
+                CONF_ADAPTER: ADAPTER,
+                CONF_SOURCE_ID: "7D00",
+                CONF_ADVERTISING_SECONDS: 0.1,
+                CONF_BEACON_KEY: "",
+                CONF_BULB: MAC,
+                CONF_LOCAL_KEY: "",
+            },
+        )
+
+    assert entry.data[CONF_ADVERTISING_SECONDS] != 0.1
     await hass.async_block_till_done()
 
 

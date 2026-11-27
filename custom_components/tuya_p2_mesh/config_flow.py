@@ -45,6 +45,7 @@ from .const import (
     DEFAULT_SEQUENCE_SEED,
     DEFAULT_SOURCE_ID,
     DOMAIN,
+    MIN_ADVERTISING_SECONDS,
 )
 from .controller import (
     BulbConfig,
@@ -244,9 +245,9 @@ async def _async_scan(
 def _advertising_selector() -> NumberSelector:
     return NumberSelector(
         NumberSelectorConfig(
-            min=0.5,
+            min=MIN_ADVERTISING_SECONDS,
             max=60.0,
-            step=0.5,
+            step=0.1,
             mode=NumberSelectorMode.BOX,
             unit_of_measurement="s",
         )
@@ -410,20 +411,27 @@ class TuyaP2MeshConfigFlow(ConfigFlow, domain=DOMAIN):
                 except (TypeError, ValueError):
                     errors["base"] = "unknown"
                 else:
-                    error = await _async_check_adapter(self.hass, adapter)
-                    if error == "no_adapter":
-                        return self.async_abort(reason="no_adapter")
-                    if error is not None:
-                        errors["base"] = error
+                    if not (
+                        MIN_ADVERTISING_SECONDS
+                        <= advertising_seconds
+                        <= 60.0
+                    ):
+                        errors["base"] = "unknown"
                     else:
-                        await self.async_set_unique_id(adapter)
-                        self._abort_if_unique_id_configured()
-                        self._init_wizard()
-                        self._adapter = adapter
-                        self._source_id = source_id
-                        self._sequence_seed = sequence_seed
-                        self._advertising_seconds = advertising_seconds
-                        return await self.async_step_scan()
+                        error = await _async_check_adapter(self.hass, adapter)
+                        if error == "no_adapter":
+                            return self.async_abort(reason="no_adapter")
+                        if error is not None:
+                            errors["base"] = error
+                        else:
+                            await self.async_set_unique_id(adapter)
+                            self._abort_if_unique_id_configured()
+                            self._init_wizard()
+                            self._adapter = adapter
+                            self._source_id = source_id
+                            self._sequence_seed = sequence_seed
+                            self._advertising_seconds = advertising_seconds
+                            return await self.async_step_scan()
         adapters = await self.hass.async_add_executor_job(find_adapters)
         return self.async_show_form(
             step_id="user",
@@ -710,7 +718,7 @@ class TuyaP2MeshConfigFlow(ConfigFlow, domain=DOMAIN):
             except (TypeError, ValueError):
                 errors["base"] = "unknown"
             else:
-                if not 0.5 <= advertising_seconds <= 60.0:
+                if not MIN_ADVERTISING_SECONDS <= advertising_seconds <= 60.0:
                     errors["base"] = "unknown"
                 else:
                     data[CONF_ADVERTISING_SECONDS] = advertising_seconds

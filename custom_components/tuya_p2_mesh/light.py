@@ -85,11 +85,6 @@ class TuyaP2Light(LightEntity):
         self._attr_hs_color = None
         self._attr_color_temp_kelvin = None
 
-    @property
-    def available(self) -> bool:
-        """Whether the controller's last radio operation succeeded."""
-        return self._controller.available
-
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Write optimistic state, then send the requested light state."""
         cmd: dict[str, Any] = {"state": "ON"}
