@@ -104,6 +104,26 @@ class TuyaP2Light(LightEntity):
         elif ATTR_COLOR_TEMP_KELVIN in kwargs:
             color_temp_kelvin = _clamp_kelvin(kwargs[ATTR_COLOR_TEMP_KELVIN])
             cmd["color_temp"] = round(_MIRED_PER_KELVIN / color_temp_kelvin)
+        elif ATTR_BRIGHTNESS in kwargs:
+            # A brightness-only command must carry the current colour mode,
+            # otherwise the bulb falls back to its default white.
+            if (
+                self._attr_color_mode == ColorMode.HS
+                and self._attr_hs_color is not None
+            ):
+                hs_color = self._attr_hs_color
+                cmd["color"] = {
+                    "h": hs_color[0],
+                    "s": hs_color[1],
+                }
+            elif (
+                self._attr_color_mode == ColorMode.COLOR_TEMP
+                and self._attr_color_temp_kelvin is not None
+            ):
+                color_temp_kelvin = self._attr_color_temp_kelvin
+                cmd["color_temp"] = round(
+                    _MIRED_PER_KELVIN / color_temp_kelvin
+                )
         groups = dp.command_groups(cmd)
         self._attr_is_on = True
         if ATTR_BRIGHTNESS in kwargs:

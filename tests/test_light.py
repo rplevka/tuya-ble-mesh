@@ -388,3 +388,40 @@ def test_color_temp_turn_on_sets_color_temp_mode() -> None:
     assert entity.color_mode == light.ColorMode.COLOR_TEMP
     assert entity.color_temp_kelvin == 2700
     assert writes[-1]["color_mode"] == light.ColorMode.COLOR_TEMP
+
+
+def test_brightness_after_hs_color_preserves_color() -> None:
+    entity, controller, _writes = make_entity()
+
+    asyncio.run(entity.async_turn_on(hs_color=(240.0, 100.0), brightness=128))
+    controller.calls.clear()
+    asyncio.run(entity.async_turn_on(brightness=200))
+
+    assert entity.color_mode == light.ColorMode.HS
+    assert entity.hs_color == (240.0, 100.0)
+    assert entity.brightness == 200
+    assert len(controller.calls) == 1
+    _bulb, dps = controller.calls[0]
+    assert (2, "enum", 1) in dps
+    assert (11, "raw", light.dp.hs_to_dp11(240, 100, 78)) in dps
+    assert (1, "bool", True) in dps
+
+
+def test_brightness_after_color_temp_preserves_temperature() -> None:
+    entity, controller, _writes = make_entity()
+
+    asyncio.run(entity.async_turn_on(color_temp_kelvin=2700, brightness=128))
+    controller.calls.clear()
+    asyncio.run(entity.async_turn_on(brightness=200))
+
+    assert entity.color_mode == light.ColorMode.COLOR_TEMP
+    assert entity.color_temp_kelvin == 2700
+    assert entity.brightness == 200
+    assert len(controller.calls) == 2
+    mode_and_temp = controller.calls[0][1]
+    brightness_and_switch = controller.calls[1][1]
+    mired = round(1_000_000 / 2700)
+    assert (2, "enum", 0) in mode_and_temp
+    assert (4, "value", light.dp.mired_to_dp(mired)) in mode_and_temp
+    assert (3, "value", light.dp.brightness_to_dp(200)) in brightness_and_switch
+    assert (1, "bool", True) in brightness_and_switch
