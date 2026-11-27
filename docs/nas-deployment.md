@@ -1,11 +1,126 @@
 # NAS deployment: native Tuya P2 Mesh
 
-Status: **prepared, not yet deployed.** The NAS currently has no Bluetooth
-adapter. This checklist covers the hardware, the `hass-homeassistant-1`
-container changes, verification, cutover, and rollback. The native transport
-has been validated only in the laptop lab
-([test-lab.md](test-lab.md)); keep the existing MQTT bridge as the production
-fallback until the NAS path passes live tests.
+Status: **deployed and validated on 2026-11-27** with Home Assistant 2026.11.2,
+a TP-Link UB500 (RTL8761B) on `hci0`, and the production `hass` container on
+host networking. The old MQTT bridge is stopped and kept as the rollback path.
+The checklist below is retained for a fresh deployment. The production-specific
+details and the local-Bluetooth root cause are recorded first.
+
+## Validated production deployment (2026-11-27)
+
+### Topology
+
+- Home Assistant runs with `network_mode: host`, `CAP_NET_ADMIN`/`CAP_NET_RAW`,
+  and `seccomp:unconfined`. Privileged mode and a `/dev/bus/usb` mount were not
+  needed; keep the existing `/dev/ttyUSB0` device.
+- A small DNS proxy container runs on the existing `hass` network at a free
+  static address (for example `172.18.0.250`). Home Assistant uses that address
+  as its DNS server so Docker service names (`whisper`, `wakeword`,
+  `influxdb`, …) continue to resolve. The proxy forwards to Docker's embedded
+  resolver at `127.0.0.11`.
+- Home Assistant is reached directly at `http://<nas>:8123`. It leaves the
+  `traefik` network, so the old debug router disappears; add a file-provider
+  router if Traefik access is required.
+- Host BlueZ is masked and a boot unit powers `hci0` and enables the MGMT
+  advertising setting. The built-in Home Assistant Bluetooth entry for the
+  local adapter is disabled (see below); ESPHome/Shelly proxy entries remain.
+
+The DNS proxy and boot unit are in [`deploy/`](../deploy/):
+
+```text
+deploy/nas_dns_proxy.py       UDP/TCP DNS proxy to Docker's 127.0.0.11
+deploy/tuya-p2-radio.service  btmgmt power on + advertising on at boot
+```
+
+### Compose fragment
+
+```yaml
+services:
+  dnsproxy:
+    image: homeassistant/home-assistant:stable
+    restart: unless-stopped
+    entrypoint: ["python3", "/dns_proxy.py"]
+    volumes:
+      - /path/to/deploy/nas_dns_proxy.py:/dns_proxy.py:ro
+    networks:
+      hass:
+        ipv4_address: 172.18.0.250
+
+  homeassistant:
+    network_mode: host
+    dns:
+      - 172.18.0.250
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    security_opt:
+      - seccomp:unconfined
+    # Remove ports: and networks: from the old bridge-network service.
+```
+
+Install the boot unit:
+
+```bash
+sudo cp deploy/tuya-p2-radio.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now tuya-p2-radio.service
+```
+
+### Root cause: local Bluetooth entry and the RTL8761B
+
+With host networking, Home Assistant's USB/Bluetooth discovery auto-created a
+`bluetooth` config entry for the local adapter (title like
+`Unknown None (<adapter address>)`). The container has no D-Bus/BlueZ, so that
+entry retried indefinitely and `habluetooth.scanner` competed with the raw-HCI
+P2 radio. Symptoms were:
+
+- `LE Set Extended Advertising Enable` failing with HCI `status 0x09` or
+  `0x12`;
+- `Bluetooth: hci0: Unexpected advertising set terminated event` in `dmesg`;
+- light commands stopping although the radio had worked moments earlier.
+
+Disable **only** that local adapter entry:
+
+> Settings → Devices & services → Bluetooth → the adapter entry (the one named
+> after the local adapter, **not** the ESPHome/Shelly proxies) → **Disable**.
+
+The disabled state persists and prevents a duplicate USB discovery entry. Do
+not mount `/run/dbus`; this integration needs raw HCI, not BlueZ.
+
+The integration also advertises P2 frames as **non-connectable**
+(`ADV_NONCONN_IND` / extended parameters `0x0000`) so a scanning central cannot
+consume the controller's advertising resources. If a controller is already in
+a bad state, reset it and reload the entry:
+
+```bash
+sudo btmgmt power off
+sleep 2
+sudo btmgmt power on
+sudo btmgmt advertising on
+# or: sudo systemctl restart tuya-p2-radio.service
+```
+
+Then reload **Settings → Devices & services → Tuya P2 Mesh**. Since 0.2.0 the
+light is always retryable and rapid commands coalesce, so a transient error no
+longer permanently disables the entity.
+
+### Latency and colour
+
+- Advertising duration defaults to `0.5` s and can be set to `0.2` s. The
+  controller's advertising interval is 20 ms; the burst is a reliability
+  margin, not a hardware limit.
+- Rapid brightness/slider updates are coalesced to the latest pending state
+  instead of queueing every intermediate frame.
+- Brightness-only changes include the current HS colour or colour temperature,
+  so changing brightness no longer resets a coloured bulb to white/orange.
+
+### Source and fallback
+
+The production native entry used source `0x7D02` with a sequence seed above the
+bridge's last value; the bridge stayed on `0x7D00`. The bridge remains installed
+but stopped. Do not control the same bulb from both controllers at once. To
+roll back, stop/disable the native entry, start the bridge, and restore the
+compose backup. See sections 6 and 8 for the reseeding and rollback details.
 
 No keys, Bluetooth addresses, node IDs, or cloud credentials belong in this
 file, the compose file, shell history, or logs. Values below are placeholders
@@ -82,11 +197,12 @@ ls -l /sys/class/bluetooth
 Keep the existing service definition, image, config volume, timezone, and
 restart policy. Add the Bluetooth-related settings below.
 
-### 3.1 Validated lab recipe, translated to compose
+### 3.1 Initial lab recipe
 
 The laptop lab used Podman with host networking, privileged mode, the USB bus,
-`NET_ADMIN`/`NET_RAW`, and an unconfined seccomp profile. The equivalent
-compose fragment is:
+`NET_ADMIN`/`NET_RAW`, and an unconfined seccomp profile. The production NAS
+used the narrower 3.2 variant plus the DNS proxy; the privileged recipe below
+is the initial lab fallback. The equivalent compose fragment is:
 
 ```yaml
 services:
@@ -128,11 +244,14 @@ Notes:
   mode, add only the settings it is missing.
 - Do not add the docker socket or other unrelated privileges.
 
-### 3.2 Least-privilege alternative
+### 3.2 Least-privilege variant (validated production)
 
-Once host networking is confirmed and the dongle is stable, replace
-`privileged: true` with the narrower capability/device grants. This variant
-has not been validated on the NAS, so test it before relying on it:
+This is the validated production variant: host networking,
+`NET_ADMIN`/`NET_RAW`, and `seccomp:unconfined`. The production NAS did not
+need privileged mode or a `/dev/bus/usb` mount; the HCI interface is visible in
+the host network namespace. Keep the existing `/dev/ttyUSB0` device for the
+other integrations. The DNS proxy from the validated section is also required.
+The USB lines below are only a fallback if the HCI interface is not visible:
 
 ```yaml
     privileged: false
@@ -256,19 +375,23 @@ advertising stop OK
 ## 6. Add the integration and bulbs
 
 1. **Settings → Devices & services → Add integration → Tuya P2 Mesh**.
-2. Select the dongle adapter (`hciN`), source ID (default `0x7D00`), sequence
-   seed, and advertising duration (default `0.5` s).
-   - Choose a sequence seed **above the last value used by the MQTT bridge with
-     the same source ID**. The counter must keep increasing; never lower it.
-     The seed only initialises the counter when
+2. Select the dongle adapter (`hciN`), source ID, sequence seed, and
+   advertising duration (default `0.5` s, minimum `0.2` s). The production
+   native entry used a separate source (for example `0x7D02`) and left the
+   bridge on `0x7D00`.
+   - Choose a sequence seed **above any last value used for that source ID**:
+     the bridge's last value if you reuse its source, or the previous test/lab
+     counter for a fresh source. The counter must keep increasing; never lower
+     it. The seed only initialises the counter when
      `.storage/tuya_p2_mesh_sequence.json` is absent. Restarting, reloading,
      reconfiguring, or recreating the entry does not reset an existing counter.
      To change it, follow
      [Reseeding or recovering the sequence counter](#reseeding-or-recovering-the-sequence-counter).
-   - Keep the default source ID unless you have a documented reason to change
-     it.
+   - Use the same source ID consistently across restarts; changing it changes
+     the bulb's replay-counter namespace.
    - The advertising duration is the initial value; it can be changed later
-     with **Reconfigure** without recreating the entry.
+     with **Reconfigure** without recreating the entry. `0.2` s was validated
+     for responsive control; rapid updates coalesce to the latest state.
 3. The scan waits ten seconds. P2 bulbs do not advertise while idle, so
    discovery often returns nothing; leave the selection empty and enter the
    bulb's Bluetooth address manually.
@@ -324,13 +447,20 @@ confirm each bulb:
 
 - [ ] Office bulb on, off, 30/50/100% brightness.
 - [ ] Red and blue colour at 50% brightness.
+- [ ] Select a colour, then change only brightness; the colour is retained.
 - [ ] Warm 2000 K and cool 6500 K at 50% brightness.
 - [ ] Kids room bulb on and off.
+- [ ] Rapid slider/click updates settle on the latest state without a long queue.
 - [ ] Light-group on at 50% and off.
+- [ ] The local adapter's built-in `bluetooth` config entry is disabled; no
+      `habluetooth` errors after a restart.
+- [ ] Voice/Wyoming, InfluxDB, and MQTT entries are loaded after the host-net
+      cutover.
 - [ ] Restart Home Assistant; the persisted sequence counter is not reset and
       commands still work.
 - [ ] No `tuya_p2_mesh` errors in the log.
-- [ ] A command still works after a NAS reboot and a dongle re-enumeration.
+- [ ] A command still works after a NAS reboot; the boot radio unit leaves
+      `hci0` powered and advertising enabled.
 
 The laptop lab record has the validated commands, observed timings, and the
 sequence-persistence check: [test-lab.md](test-lab.md). Do not declare the NAS
@@ -348,9 +478,10 @@ the fallback throughout.
    bridge service during the trial.
 3. After the native integration passes the acceptance test, stop the bridge
    service (or disable its MQTT entities) before the native entry starts
-   controlling the bulbs. Never run the bridge and this integration
-   concurrently against the same bulbs or source ID; duplicate sequence
-   numbers and racing commands can be ignored or cause flicker.
+   controlling the bulbs. The production native entry used a separate source
+   (`0x7D02`) from the bridge (`0x7D00`), but do not control the same bulb from
+   both controllers at once; separate sources avoid sequence collisions, not
+   racing commands or flicker.
 4. Keep the bridge installed and its configuration intact for a rollback
    window, but leave it stopped while the native path is active. Remove the
    bridge only after the user is satisfied.
@@ -396,10 +527,10 @@ router if you want to enforce that boundary.
 
 ## 10. Security notes
 
-- The validated recipe runs Home Assistant with broad container privileges.
-  Prefer the least-privilege variant from section 3.2 once it is tested.
-- Mounting `/dev/bus/usb` exposes every USB device on the NAS to the
-  container. Use a dedicated host or narrow the mount if that matters.
+- The validated production recipe uses host networking, `CAP_NET_ADMIN`/
+  `CAP_NET_RAW`, and `seccomp:unconfined`, not privileged mode. The
+  `/dev/bus/usb` mount is optional and was not needed in the validated setup;
+  if used, it exposes every USB device on the NAS to the container.
 - Install the integration from the trusted repository only, and review the
   code before granting `CAP_NET_RAW`.
 - Integration diagnostics redact all keys, but still include the adapter name,
@@ -417,6 +548,8 @@ recreate the container:
 docker compose up -d homeassistant
 ```
 
-Remove host networking, privileged/capability grants, the USB mount, and the
-seccomp override. Restore the previous `ports:` mapping and reverse-proxy
-configuration. Then restart the MQTT bridge as described in section 8.
+Restore the previous compose file from the backup, removing host networking,
+the capability grants, the DNS proxy service, and the seccomp override.
+Disable `tuya-p2-radio.service` and restore the previous `ports:`/network
+mappings and reverse-proxy configuration. Then restart the MQTT bridge as
+described in section 8.

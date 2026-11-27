@@ -1,0 +1,13 @@
+[Unit]
+Description=Power and enable advertising on the Tuya P2 Mesh BLE adapter
+After=bluetooth.target
+Wants=bluetooth.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+TimeoutStartSec=90
+ExecStart=/bin/sh -c 'for i in $(seq 1 30); do /usr/bin/btmgmt power on && /usr/bin/btmgmt advertising on && exit 0; sleep 2; done; exit 1'
+
+[Install]
+WantedBy=multi-user.target
