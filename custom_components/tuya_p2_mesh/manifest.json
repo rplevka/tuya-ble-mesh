@@ -1,7 +1,12 @@
 {
   "domain": "tuya_p2_mesh",
   "name": "Tuya P2 Mesh",
-  "codeowners": ["@rplevka"],
+  "categories": [
+    "lighting.bulbs_lamps"
+  ],
+  "codeowners": [
+    "@rplevka"
+  ],
   "config_flow": true,
   "documentation": "https://github.com/rplevka/tuya-ble-mesh",
   "iot_class": "local_push",
